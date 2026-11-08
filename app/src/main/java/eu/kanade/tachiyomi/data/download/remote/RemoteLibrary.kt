@@ -150,14 +150,15 @@ class RemoteLibrary(
     }
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
-        val expectedNamespace = namespace
-        val chapters = client.newCall(request("chapters").build()).awaitSuccess().use {
-            json.decodeFromString<List<RemoteChapter>>(it.body.string())
-        }
-        require(chapters.all { it.key.matches(Regex("[a-f0-9]{64}")) && it.pageCount in 1..2000 }) {
-            "Invalid server catalog"
-        }
         catalogLock.withLock {
+            // Serialize the network snapshot with local commits; a slow refresh must not erase a newer download.
+            val expectedNamespace = namespace
+            val chapters = pageClient.newCall(request("chapters").build()).awaitSuccess().use {
+                json.decodeFromString<List<RemoteChapter>>(it.body.string())
+            }
+            require(chapters.all { it.key.matches(Regex("[a-f0-9]{64}")) && it.pageCount in 1..2000 }) {
+                "Invalid server catalog"
+            }
             if (namespace != expectedNamespace) return@withLock
             saveCatalog(Catalog(expectedNamespace, chapters))
         }
@@ -183,7 +184,7 @@ class RemoteLibrary(
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         checkNotNull(source) { "Install the source extension to download this chapter to the server" }
         val pages = source.getPageList(chapter.toSChapter())
-        require(pages.isNotEmpty()) { "The source returned an empty chapter" }
+        require(pages.size in 1..2000) { "Remote chapters must contain 1 to 2000 pages" }
         val manifest = pages.map { page ->
             if (page.imageUrl.isNullOrEmpty()) page.imageUrl = source.getImageUrl(page)
             val image = source.getRemoteImageRequest(page)
