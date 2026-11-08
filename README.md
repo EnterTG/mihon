@@ -34,7 +34,17 @@ cd mihon
 
 The APK is written to `app/build/outputs/apk/debug/`. CI APKs are available as `yomira-arm64-v8a-<commit>` artifacts in [Build & Test](https://github.com/EnterTG/mihon/actions/workflows/build.yml) after a successful run.
 
-Yomira keeps this fork's existing application IDs (`app.mihon` for release and `app.mihon.dev` for debug), OAuth callbacks and default Android storage directory `Mihon`. Updating an existing installation requires the same signing key. To install beside official Mihon, use the debug variant; transfer your library with a backup if needed.
+Yomira installs as a separate application beside Mihon in every build variant: `app.yomira` for release, `app.yomira.dev` for debug, `app.yomira.foss` for FOSS, `app.yomira.debug` for nightly and `app.yomira.benchmark` for benchmarks. It has its own private database, preferences and cache; its default external storage directory is `Yomira`. FileProvider, Shizuku authorities and shortcuts use the variant application ID automatically. Updating Yomira itself requires the same signing key.
+
+### Import an existing library
+
+1. In Mihon or the older Yomira build, create a `.tachibk` backup from **Settings → Data and storage → Backup and restore**.
+2. Install the new Yomira APK beside the existing app; do not uninstall the old app to perform this migration.
+3. In Yomira, restore the backup. You can restore the library, categories, extension repositories and source settings without restoring app settings, keeping Yomira's own storage location.
+4. If you restore app settings too, reselect the desired storage directory in Yomira. Android does not transfer another app's folder permissions. Reauthorize trackers when needed.
+5. To reuse the NAS archive, enter the same server address and token and refresh its catalog. The archive format and chapter keys are unchanged.
+
+Private app data is not shared or imported automatically. Local chapter images are not included in the library backup; select an existing shared folder explicitly if you want both apps to access the same local files. Registered tracker OAuth callback URLs are retained for service compatibility; when Android offers both apps for a login callback, choose Yomira.
 
 Telemetry and the automatic updater are disabled by default for all distributions. An explicitly enabled updater uses this fork's repository. The inherited release workflow remains restricted to the upstream repository; publishing signed Yomira releases requires configuring a release workflow and signing credentials for this fork.
 

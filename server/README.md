@@ -75,17 +75,26 @@ Wybierz jeden sposób uruchomienia, aby dwa kontenery nie używały jednocześni
 
 Zainstaluj build Androida zawierający tę zmianę. Standardowa aplikacja Mihon nie ma tej funkcji.
 
-Do testowania obok oficjalnej aplikacji zbuduj wariant debug z katalogu głównego repozytorium:
+Yomira instaluje się obok Mihona jako osobna aplikacja także w wariancie `release` z CI (`app.yomira`). Wariant debug (`app.yomira.dev`) zbudujesz z katalogu głównego repozytorium:
 
 ```sh
 ./gradlew assembleDebug
 ```
 
-APK znajdziesz w `app/build/outputs/apk/debug/`. Ten wariant używa osobnego identyfikatora `app.mihon.dev`, więc może działać równolegle z oficjalnym Mihon. Buildy Yomira domyślnie nie zawierają telemetrii ani automatycznego aktualizatora. Bibliotekę możesz przenieść przez zwykłą kopię zapasową Mihon i przywrócenie jej w nowej instalacji.
+APK debug znajdziesz w `app/build/outputs/apk/debug/`, a release w artefakcie `yomira-arm64-v8a-<commit>` udanej kompilacji GitHub Actions. Nowy APK nie aktualizuje Mihona ani starszego buildu Yomiry o identyfikatorze `app.mihon`. Yomira ma własną bazę, ustawienia i cache oraz osobny domyślny katalog Androida `Yomira`. Buildy Yomira domyślnie nie zawierają telemetrii ani automatycznego aktualizatora.
 
-Zmiana nazwy na Yomira zachowuje identyfikatory instalacji i dotychczasowy domyślny katalog Androida `Mihon`, aby nie odłączyć istniejących danych. Aktualizacja poprzedniego buildu wymaga tego samego klucza podpisującego. Nazwy `MIHON_DATA`, `MIHON_TOKEN`, `mihon-library` oraz ścieżki datasetów pozostają zgodne z poprzednią konfiguracją; nie trzeba przenosić archiwum.
+### Przeniesienie danych z Mihona lub starszej Yomiry
 
-Artefakt `release` z CI nadal używa `app.mihon` i podpisu CI; nie zastępuje oficjalnej aplikacji podpisanej innym kluczem. Zachowaj kopię zapasową przed zmianą używanej instalacji.
+1. W starej aplikacji otwórz **Ustawienia → Dane i przechowywanie → Kopia zapasowa i przywracanie** i utwórz plik `.tachibk`.
+2. Zainstaluj nową Yomirę obok starej aplikacji i przywróć w niej ten plik. Nie trzeba odinstalowywać starej aplikacji.
+3. Przywróć bibliotekę, kategorie, repozytoria rozszerzeń i ustawienia źródeł. Pozostaw opcję **Ustawienia aplikacji** odznaczoną, jeśli chcesz zachować osobny katalog Yomiry. Jeśli przywracasz również ustawienia aplikacji, ponownie wybierz katalog przechowywania w Yomirze — uprawnienia Androida do folderów nie przechodzą między aplikacjami. W razie potrzeby ponownie zaloguj się do trackerów.
+4. Wpisz ten sam adres NAS i token, a następnie odśwież katalog archiwum zgodnie z poniższymi krokami.
+
+Prywatna baza i ustawienia starej aplikacji nie są współdzielone automatycznie. Plik `.tachibk` nie zawiera lokalnych obrazów rozdziałów. Dotychczasowy katalog lokalny można wskazać ręcznie, jeśli chcesz świadomie współdzielić pliki. Zarejestrowane adresy powrotu logowania trackerów pozostają zgodne z usługami; jeśli Android pokaże wybór aplikacji po logowaniu, wybierz Yomirę.
+
+Nazwy `MIHON_DATA`, `MIHON_TOKEN`, `mihon-library` oraz ścieżki datasetów pozostają zgodne z poprzednią konfiguracją; nie trzeba przenosić archiwum NAS. Kolejne aktualizacje samej Yomiry wymagają tego samego klucza podpisującego.
+
+### Podłączenie NAS
 
 1. Otwórz **Ustawienia → Pobieranie → Biblioteka sieciowa (TrueNAS)**.
 2. Wpisz adres `http://ADRES_TRUENAS:8088` albo adres HTTPS reverse proxy, bez dodatkowej ścieżki.
