@@ -1,6 +1,7 @@
 package eu.kanade.presentation.more.settings.widget
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -16,7 +17,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import mihon.icons.materialsymbols.MaterialSymbols
@@ -32,12 +36,13 @@ fun EditTextPreferenceWidget(
     icon: ImageVector?,
     value: String,
     onConfirm: suspend (String) -> Boolean,
+    isPassword: Boolean = false,
 ) {
     var isDialogShown by remember { mutableStateOf(false) }
 
     TextPreferenceWidget(
         title = title,
-        subtitle = subtitle?.format(value),
+        subtitle = subtitle?.format(if (isPassword && value.isNotEmpty()) "••••••••" else value),
         icon = icon,
         onPreferenceClick = { isDialogShown = true },
     )
@@ -66,6 +71,14 @@ fun EditTextPreferenceWidget(
                     },
                     isError = textFieldValue.text.isBlank(),
                     singleLine = true,
+                    visualTransformation = if (isPassword) {
+                        PasswordVisualTransformation()
+                    } else {
+                        VisualTransformation.None
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
             },

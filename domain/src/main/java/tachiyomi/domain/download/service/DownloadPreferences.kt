@@ -12,6 +12,14 @@ class DownloadPreferences(
     preferenceStore: PreferenceStore,
 ) {
 
+    val remoteLibraryEnabled: Preference<Boolean> = preferenceStore.getBoolean("remote_library_enabled", false)
+
+    val remoteLibraryUrl: Preference<String> = preferenceStore.getString("remote_library_url")
+
+    val remoteLibraryToken: Preference<String> = preferenceStore.getString(
+        Preference.privateKey("remote_library_token"),
+    )
+
     val downloadOnlyOverWifi: Preference<Boolean> = preferenceStore.getBoolean(
         "pref_download_only_over_wifi_key",
         true,

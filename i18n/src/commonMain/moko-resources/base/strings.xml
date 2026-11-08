@@ -1095,4 +1095,15 @@
     <string name="donationCampaign.paragraph3">Regardless, Mihon will continue to be maintained by me and the volunteers, and it will stay open source.</string>
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Dismiss</string>
+
+    <!-- Network library -->
+    <string name="remote_library_title">Network library (TrueNAS)</string>
+    <string name="remote_library_url">Server URL</string>
+    <string name="remote_library_token">Server token (at least 32 characters)</string>
+    <string name="remote_library_enable">Store downloads on the server</string>
+    <string name="remote_library_refresh">Test connection and refresh library</string>
+    <string name="remote_library_connecting">Connecting…</string>
+    <string name="remote_library_connected">Connected; server library refreshed</string>
+    <string name="remote_library_connection_error">Connection failed. Check the server URL, token and network.</string>
+    <string name="remote_library_summary">Requires the Mihon companion service on your NAS. Images are downloaded by the server. The device buffers only the current chapter, one previous and two next chapters; prefetch follows the reader Wi-Fi setting. Existing local downloads are kept. Automatic deletion after reading is disabled for the server archive. Use HTTPS or a trusted private network.</string>
 </resources>

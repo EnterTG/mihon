@@ -168,7 +168,10 @@ class NotificationReceiver : BroadcastReceiver() {
         launchAsync {
             val toUpdate = chapterUrls.mapNotNull { getChapter.await(it, mangaId) }
                 .map {
-                    if (downloadPreferences.removeAfterMarkedAsRead.get()) {
+                    if (
+                        downloadPreferences.removeAfterMarkedAsRead.get() &&
+                        !downloadPreferences.remoteLibraryEnabled.get()
+                    ) {
                         val manga = getManga.await(mangaId)
                         if (manga != null) {
                             val source = sourceManager.get(manga.source)

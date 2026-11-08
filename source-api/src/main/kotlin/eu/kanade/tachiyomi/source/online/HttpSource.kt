@@ -409,6 +409,9 @@ abstract class HttpSource : CatalogueSource {
             .awaitSuccess()
     }
 
+    /** Resolves the same image request as a local download, without transferring image bytes. */
+    fun getRemoteImageRequest(page: Page): Request = imageRequest(page)
+
     /**
      * Returns the request for getting the source image. Override only if it's needed to override
      * the url, send different headers or request method like POST.

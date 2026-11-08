@@ -83,6 +83,9 @@ class ChapterLoader(
      * Returns the page loader to use for this [chapter].
      */
     private suspend fun getPageLoader(chapter: ReaderChapter): PageLoader {
+        if (downloadManager.remoteLibrary.enabled && source !is LocalSource) {
+            return RemotePageLoader(chapter, manga, source as? HttpSource, downloadManager.remoteLibrary)
+        }
         val dbChapter = chapter.chapter
         val isDownloaded = downloadManager.isChapterDownloadedOnDisk(
             dbChapter.name,

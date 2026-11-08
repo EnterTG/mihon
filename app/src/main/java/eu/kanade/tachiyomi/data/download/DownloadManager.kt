@@ -5,6 +5,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.download.remote.RemoteLibrary
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -51,6 +52,7 @@ class DownloadManager(
     private val downloadPreferences: DownloadPreferences,
     private val downloader: Downloader,
     private val pendingDeleter: DownloadPendingDeleter,
+    val remoteLibrary: RemoteLibrary,
 ) {
 
     val queueState
@@ -191,6 +193,7 @@ class DownloadManager(
      * @param manga the manga of the chapters.
      */
     fun getDownloadedChapterIds(chapters: List<Chapter>, manga: Manga): Set<Long> {
+        if (remoteLibrary.enabled) return remoteLibrary.downloadedIds(chapters, manga)
         return cache.getDownloadedChapterIds(chapters, manga.title, manga.source)
     }
 
@@ -209,6 +212,7 @@ class DownloadManager(
         mangaTitle: String,
         sourceId: Long,
     ): Boolean {
+        if (remoteLibrary.enabled) return remoteLibrary.contains(sourceId, chapterUrl)
         return cache.isChapterDownloaded(chapterName, chapterScanlator, chapterUrl, mangaTitle, sourceId)
     }
 
@@ -234,6 +238,7 @@ class DownloadManager(
      * Returns the amount of downloaded chapters.
      */
     fun getDownloadCount(): Int {
+        if (remoteLibrary.enabled) return remoteLibrary.count()
         return cache.getTotalDownloadCount()
     }
 
@@ -243,6 +248,7 @@ class DownloadManager(
      * @param manga the manga to check.
      */
     fun getDownloadCount(manga: Manga): Int {
+        if (remoteLibrary.enabled) return remoteLibrary.count(manga)
         return cache.getDownloadCount(manga)
     }
 
@@ -252,6 +258,7 @@ class DownloadManager(
      * @param manga the manga to check.
      */
     fun getDownloadCounts(manga: List<Manga>): Map<Long, Int> {
+        if (remoteLibrary.enabled) return manga.associate { it.id to remoteLibrary.count(it) }
         return cache.getDownloadCounts(manga)
     }
 
@@ -275,6 +282,10 @@ class DownloadManager(
 
             downloader.dequeue(filteredChapters)
 
+            if (remoteLibrary.enabled) {
+                remoteLibrary.delete(manga, filteredChapters)
+                return@withContext
+            }
             val (mangaDir, chapterDirs) = provider.findChapterDirs(filteredChapters, manga, source)
             chapterDirs.forEach { it.delete() }
             cache.removeChapters(filteredChapters, manga)
@@ -297,6 +308,10 @@ class DownloadManager(
         withContext(Dispatchers.IO) {
             if (removeQueued) {
                 downloader.removeFromQueue(manga)
+            }
+            if (remoteLibrary.enabled) {
+                remoteLibrary.deleteManga(manga)
+                return@withContext
             }
             provider.findMangaDir(manga.title, source)?.delete()
             cache.removeManga(manga)

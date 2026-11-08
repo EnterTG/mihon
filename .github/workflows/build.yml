@@ -21,6 +21,15 @@ permissions:
   contents: read
 
 jobs:
+  remote-library:
+    name: Test remote library server
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test server
+        run: python3 -m unittest discover -s server/tests -v
+
   build:
     name: Build & Test App
     runs-on: 'ubuntu-26.04'

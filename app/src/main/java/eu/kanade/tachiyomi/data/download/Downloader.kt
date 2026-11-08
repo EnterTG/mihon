@@ -8,6 +8,7 @@ import dev.zacsweers.metro.SingleIn
 import eu.kanade.domain.chapter.model.toSChapter
 import eu.kanade.domain.manga.model.getComicInfo
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.download.remote.RemoteLibrary
 import eu.kanade.tachiyomi.data.library.LibraryUpdateNotifier
 import eu.kanade.tachiyomi.data.notification.NotificationHandler
 import eu.kanade.tachiyomi.network.HttpException
@@ -45,6 +46,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import mihon.core.archive.ZipWriter
@@ -64,9 +66,9 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.i18n.MR
+import kotlin.time.Duration.Companion.seconds
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * This class is the one in charge of downloading chapters.
@@ -88,6 +90,7 @@ class Downloader(
     private val getTracks: GetTracks,
     private val store: DownloadStore,
     private val notifier: DownloadNotifier,
+    private val remoteLibrary: RemoteLibrary,
 ) {
     /**
      * Queue where active downloads are kept.
@@ -356,7 +359,11 @@ class Downloader(
         val source = sourceManager.get(manga.source) as? HttpSource ?: return false
         val wasEmpty = queueState.value.isEmpty()
         val chaptersToQueue = withContext(Dispatchers.IO) {
-            val downloadedChapterIds = provider.findDownloadedChapterIds(chapters, manga, source)
+            val downloadedChapterIds = if (remoteLibrary.enabled) {
+                remoteLibrary.downloadedIds(chapters, manga)
+            } else {
+                provider.findDownloadedChapterIds(chapters, manga, source)
+            }
             val queuedChapterIds = queueState.value.mapTo(HashSet()) { it.chapter.id }
             chapters
                 // Filter out those already downloaded.
@@ -409,6 +416,28 @@ class Downloader(
      * @param pagesStarted completed once every page has a slot.
      */
     private suspend fun downloadChapter(download: Download, slots: Semaphore, pagesStarted: CompletableDeferred<Unit>) {
+        if (remoteLibrary.enabled) {
+            try {
+                download.status = Download.State.DOWNLOADING
+                slots.withPermit {
+                    val stored = remoteLibrary.ensure(download.manga, download.chapter, download.source)
+                    download.pages = List(stored.pageCount) { index ->
+                        Page(index).apply {
+                            progress = 100
+                            status = Page.State.Ready
+                        }
+                    }
+                }
+                download.status = Download.State.DOWNLOADED
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                download.status = Download.State.ERROR
+                notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
+            } finally {
+                pagesStarted.complete(Unit)
+            }
+            return
+        }
         val mangaDir = provider.getMangaDir(download.manga.title, download.source).getOrElse { e ->
             download.status = Download.State.ERROR
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)

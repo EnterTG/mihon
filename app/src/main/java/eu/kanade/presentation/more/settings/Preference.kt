@@ -136,6 +136,7 @@ sealed class Preference {
          */
         data class EditTextPreference(
             val preference: PreferenceData<String>,
+            val isPassword: Boolean = false,
             override val title: String,
             override val subtitle: String? = "%s",
             override val visible: Boolean = true,
