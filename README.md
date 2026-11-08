@@ -1,90 +1,60 @@
 <div align="center">
 
-<a href="https://mihon.app">
-    <img src="./.github/assets/logo.png" alt="Mihon logo" title="Mihon logo" width="80"/>
-</a>
+<img src="./.github/assets/yomira.svg" alt="Yomira logo" width="80"/>
 
-# Mihon [App](#)
+# Yomira
 
-### Full-featured reader
-Discover and read manga, webtoons, comics, and more – easier than ever on your Android device.
+An Android reader for manga, webtoons and comics, with an optional network library on your own TrueNAS server.
 
-[![Discord server](https://img.shields.io/discord/1195734228319617024.svg?label=&labelColor=6A7EC2&color=7389D8&logo=discord&logoColor=FFFFFF)](https://discord.gg/mihon)
-[![GitHub downloads](https://img.shields.io/github/downloads/mihonapp/mihon/total?label=downloads&labelColor=27303D&color=0D1117&logo=github&logoColor=FFFFFF&style=flat)](https://mihon.app/download)
+[![CI](https://img.shields.io/github/actions/workflow/status/EnterTG/mihon/build.yml)](https://github.com/EnterTG/mihon/actions/workflows/build.yml)
+[![License: Apache-2.0](https://img.shields.io/github/license/EnterTG/mihon)](LICENSE)
 
-[![CI](https://img.shields.io/github/actions/workflow/status/mihonapp/mihon/build.yml?labelColor=27303D)](https://github.com/mihonapp/mihon/actions/workflows/build_push.yml)
-[![License: Apache-2.0](https://img.shields.io/github/license/mihonapp/mihon?labelColor=27303D&color=0877d2)](/LICENSE)
-[![Translation status](https://img.shields.io/weblate/progress/mihon?labelColor=27303D&color=946300)](https://hosted.weblate.org/engage/mihon/)
+</div>
 
-## Download
-
-[![Mihon Stable](https://img.shields.io/github/release/mihonapp/mihon.svg?maxAge=3600&label=Stable&labelColor=06599d&color=043b69)](https://mihon.app/download)
-[![Mihon Beta](https://img.shields.io/github/v/release/mihonapp/mihon-preview.svg?maxAge=3600&label=Beta&labelColor=2c2c47&color=1c1c39)](https://mihon.app/download)
-
-*Requires Android 8.0 or higher.*
+Yomira is an independent fork of [Mihon](https://github.com/mihonapp/mihon). This repository retains its existing GitHub name, `EnterTG/mihon`.
 
 ## Features
 
-<div align="left">
+- Configurable reader for manga, webtoons and comics.
+- Library categories, reading history, trackers, themes and backups inherited from Mihon.
+- Optional server downloads: the NAS downloads and archives chapter images; the phone retrieves them for reading.
+- A rolling image cache containing the current chapter, one previous chapter and two upcoming chapters.
 
-* Local reading of content.
-* A configurable reader with multiple viewers, reading directions and other settings.
-* Tracker support: [MangaBaka](https://mangabaka.org), [MyAnimeList](https://myanimelist.net/), [AniList](https://anilist.co/), [Kitsu](https://kitsu.app/), [MangaUpdates](https://mangaupdates.com), [Shikimori](https://shikimori.one), [Bangumi](https://bgm.tv/), and [Hikka](https://hikka.io/) support.
-* Categories to organize your library.
-* Light and dark themes.
-* Schedule updating your library for new chapters.
-* Create backups locally to read offline or to your desired cloud service.
-* Plus much more...
+The phone still stores library metadata, covers, extensions and temporary images. Existing local downloads are preserved. See [TrueNAS setup and limitations (Polski)](server/README.md).
 
-</div>
+## Build and install
 
-## Contributing
+Requires Android 8.0 or higher to run. Use JDK 21 and the Android SDK to build:
 
-[Code of conduct](./CODE_OF_CONDUCT.md) · [Contributing guide](./CONTRIBUTING.md)
+```sh
+git clone https://github.com/EnterTG/mihon.git
+cd mihon
+./gradlew assembleDebug
+```
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+The APK is written to `app/build/outputs/apk/debug/`. CI APKs are available as `yomira-arm64-v8a-<commit>` artifacts in [Build & Test](https://github.com/EnterTG/mihon/actions/workflows/build.yml) after a successful run.
 
-Before reporting a new issue, take a look at the [FAQ](https://mihon.app/docs/faq/general), the [changelog](https://mihon.app/changelogs/) and the already opened [issues](https://github.com/mihonapp/mihon/issues); if you got any questions, join our [Discord server](https://discord.gg/mihon).
+Yomira keeps this fork's existing application IDs (`app.mihon` for release and `app.mihon.dev` for debug), OAuth callbacks and default Android storage directory `Mihon`. Updating an existing installation requires the same signing key. To install beside official Mihon, use the debug variant; transfer your library with a backup if needed.
 
+Telemetry and the automatic updater are disabled by default for all distributions. An explicitly enabled updater uses this fork's repository. The inherited release workflow remains restricted to the upstream repository; publishing signed Yomira releases requires configuring a release workflow and signing credentials for this fork.
 
-### Repositories
+Existing NAS deployments keep their `MIHON_DATA` / `MIHON_TOKEN` settings, Compose service name, dataset paths and archive format.
 
-[![mihonapp/website - GitHub](https://github-stats-extended.vercel.app/api/pin/?username=mihonapp&repo=website&bg_color=161B22&text_color=c9d1d9&title_color=0877d2&icon_color=0877d2&border_radius=8&hide_border=true&description_lines_count=2)](https://github.com/mihonapp/website/)
-[![mihonapp/bitmap.kt - GitHub](https://github-stats-extended.vercel.app/api/pin/?username=mihonapp&repo=bitmap.kt&bg_color=161B22&text_color=c9d1d9&title_color=0877d2&icon_color=0877d2&border_radius=8&hide_border=true&description_lines_count=2)](https://github.com/mihonapp/bitmap.kt/)
+## Development
 
-### Credits
+```sh
+python3 -m unittest discover -s server/tests -v
+./gradlew spotlessCheck testDebugUnitTest verifySqlDelightMigration
+```
 
-Thank you to all the people who have contributed!
+Report Yomira issues in [this repository](https://github.com/EnterTG/mihon/issues). General reader documentation is available in the [upstream Mihon guides](https://mihon.app/docs/guides/). [Contribution guide](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md).
 
-<a href="https://github.com/mihonapp/mihon/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=mihonapp/mihon" alt="Mihon app contributors" title="Mihon app contributors" width="800"/>
-</a>
+## Credits and license
 
-### Disclaimer
+Built on the work of [Mihon contributors](https://github.com/mihonapp/mihon/graphs/contributors) and the original Tachiyomi project. Upstream documentation, translations and support links remain attributed to Mihon.
 
-The developer(s) of this application does not have any affiliation with the content providers available, and this application hosts zero content.
-
-### License
-
-<pre>
 Copyright © 2015 Javier Tomás
+
 Copyright © 2024 Mihon Open Source Project
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-</pre>
-
-</div>
-
-## Network library / TrueNAS
-
-This fork includes an optional NAS-backed download mode with a four-chapter reader buffer. See [setup and limitations (Polski)](server/README.md).
+Licensed under the [Apache License, Version 2.0](LICENSE). Existing copyright and license notices are preserved.

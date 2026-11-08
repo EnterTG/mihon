@@ -1,4 +1,4 @@
-"""Mihon remote library. Python 3.12+, standard library only."""
+"""Yomira remote library. Python 3.12+, standard library only."""
 import hashlib
 import hmac
 import http.client
