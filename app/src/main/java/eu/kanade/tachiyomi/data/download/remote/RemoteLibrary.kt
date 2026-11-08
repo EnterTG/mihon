@@ -197,7 +197,13 @@ class RemoteLibrary(
         }
         val expectedNamespace = namespace
         val metadata = RemoteChapter(
-            key, manga.source.toString(), manga.url, manga.title, chapter.url, chapter.name, pages.size,
+            key = key,
+            sourceId = manga.source.toString(),
+            mangaUrl = manga.url,
+            mangaTitle = manga.title,
+            chapterUrl = chapter.url,
+            chapterName = chapter.name,
+            pageCount = pages.size,
         )
         val body = json.encodeToString(RemoteManifest(metadata, manifest))
             .toRequestBody("application/json".toMediaType())
@@ -245,7 +251,7 @@ class RemoteLibrary(
 
     /** Called only when the active chapter changes, never by a speculative page loader. */
     suspend fun setWindow(manga: Manga, chapters: List<Chapter>) = withContext(Dispatchers.IO) {
-        buffer.setWindow(chapters.map { "${namespace}/${key(manga, it)}" }.toSet())
+        buffer.setWindow(chapters.map { "$namespace/${key(manga, it)}" }.toSet())
     }
 
     /** Files are written atomically and only inside the latest window, including after cancellation. */

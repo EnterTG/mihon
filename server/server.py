@@ -64,7 +64,7 @@ def fetch_image(page, destination):
                       else http.client.HTTPConnection(address, port, timeout=60))
         request_headers = {**headers, "Host": parsed.netloc}
         try:
-            connection.request("GET", parsed.path + ("?" + parsed.query if parsed.query else "") or "/", headers=request_headers)
+            connection.request("GET", (parsed.path or "/") + ("?" + parsed.query if parsed.query else ""), headers=request_headers)
             response = connection.getresponse()
             if response.status in (301, 302, 303, 307, 308):
                 target = urljoin(url, response.getheader("Location", ""))

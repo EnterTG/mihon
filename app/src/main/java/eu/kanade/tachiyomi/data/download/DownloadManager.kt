@@ -332,6 +332,7 @@ class DownloadManager(
      * @param manga the manga of the chapters.
      */
     suspend fun enqueueChaptersToDelete(chapters: List<Chapter>, manga: Manga) {
+        if (remoteLibrary.enabled) return
         pendingDeleter.addChapters(getChaptersToDelete(chapters, manga), manga)
     }
 
@@ -339,6 +340,8 @@ class DownloadManager(
      * Triggers the execution of the deletion of pending chapters.
      */
     suspend fun deletePendingChapters() {
+        // Pending entries may have been created in local mode before enabling the NAS.
+        if (remoteLibrary.enabled) return
         val pendingChapters = pendingDeleter.getPendingChapters()
         for ((manga, chapters) in pendingChapters) {
             val source = sourceManager.get(manga.source) ?: continue
