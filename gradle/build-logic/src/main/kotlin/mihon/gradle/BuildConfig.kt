@@ -25,12 +25,12 @@ val Project.Config: BuildConfig get() = object : BuildConfig {
         ?: Distribution.LOCAL
 
     override val includeTelemetry: Boolean = project.flag("include-telemetry")
-        ?: (distribution == Distribution.CI || distribution == Distribution.GITHUB)
+        ?: false
 
     override val uploadCrashlyticsMapping: Boolean = includeTelemetry && (distribution == Distribution.GITHUB)
 
     override val enableUpdater: Boolean = project.flag("enable-updater")
-        ?: (distribution != Distribution.LOCAL)
+        ?: false
 
     override val includeDependencyInfo: Boolean = project.flag("include-dependency-info") ?: false
 }

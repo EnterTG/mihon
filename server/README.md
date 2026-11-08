@@ -1,6 +1,6 @@
-# Biblioteka sieciowa Mihon na TrueNAS Community Edition
+# Biblioteka sieciowa Yomira na TrueNAS Community Edition
 
-Ten wariant Mihon zapisuje pobierane obrazy bezpośrednio na Twoim serwerze. Android przekazuje usłudze listę adresów obrazów i nagłówki źródła; **obrazy pobiera serwer**, a aplikacja odbiera je dopiero do czytania. Wybranie „Pobierz” w aplikacji archiwizuje cały wybrany rozdział na NAS, bez pobierania jego obrazów na telefon.
+Yomira zapisuje pobierane obrazy bezpośrednio na Twoim serwerze. Android przekazuje usłudze listę adresów obrazów i nagłówki źródła; **obrazy pobiera serwer**, a aplikacja odbiera je dopiero do czytania. Wybranie „Pobierz” w aplikacji archiwizuje cały wybrany rozdział na NAS, bez pobierania jego obrazów na telefon.
 
 Na telefonie pozostaje baza biblioteki (tytuły, ulubione, historia i postęp czytania), okładki, rozszerzenia, indeks zawartości serwera oraz tymczasowe obrazy. To przechowywanie treści na serwerze; nie jest to synchronizacja całej bazy aplikacji między urządzeniami. Dotychczasowe lokalne pliki nie są przenoszone ani kasowane.
 
@@ -15,7 +15,7 @@ Usługa to samodzielny kontener Python bez dodatkowych pakietów. Nie instaluj n
 W powłoce TrueNAS, z uprawnieniami do Dockera:
 
 ```sh
-git clone --branch feature/truenas-remote-library https://github.com/EnterTG/mihon.git /mnt/tank/apps/mihon
+git clone --branch main https://github.com/EnterTG/mihon.git /mnt/tank/apps/mihon
 cd /mnt/tank/apps/mihon/server
 cp .env.example .env
 chmod 600 .env
@@ -81,7 +81,9 @@ Do testowania obok oficjalnej aplikacji zbuduj wariant debug z katalogu główne
 ./gradlew assembleDebug
 ```
 
-APK znajdziesz w `app/build/outputs/apk/debug/`. Ten wariant używa osobnego identyfikatora `app.mihon.dev`, więc może działać równolegle z oficjalnym Mihon. Lokalny build domyślnie nie zawiera telemetrii ani automatycznego aktualizatora. Bibliotekę możesz przenieść przez zwykłą kopię zapasową Mihon i przywrócenie jej w nowej instalacji.
+APK znajdziesz w `app/build/outputs/apk/debug/`. Ten wariant używa osobnego identyfikatora `app.mihon.dev`, więc może działać równolegle z oficjalnym Mihon. Buildy Yomira domyślnie nie zawierają telemetrii ani automatycznego aktualizatora. Bibliotekę możesz przenieść przez zwykłą kopię zapasową Mihon i przywrócenie jej w nowej instalacji.
+
+Zmiana nazwy na Yomira zachowuje identyfikatory instalacji i dotychczasowy domyślny katalog Androida `Mihon`, aby nie odłączyć istniejących danych. Aktualizacja poprzedniego buildu wymaga tego samego klucza podpisującego. Nazwy `MIHON_DATA`, `MIHON_TOKEN`, `mihon-library` oraz ścieżki datasetów pozostają zgodne z poprzednią konfiguracją; nie trzeba przenosić archiwum.
 
 Artefakt `release` z CI nadal używa `app.mihon` i podpisu CI; nie zastępuje oficjalnej aplikacji podpisanej innym kluczem. Zachowaj kopię zapasową przed zmianą używanej instalacji.
 
