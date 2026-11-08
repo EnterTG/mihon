@@ -1,0 +1,19 @@
+services:
+  mihon-library:
+    build: .
+    image: mihon-library:local
+    user: "568:568"
+    ports:
+      - "8088:8080"
+    environment:
+      MIHON_TOKEN: "${MIHON_TOKEN:?Set MIHON_TOKEN to a random secret of at least 32 characters}"
+    volumes:
+      - "${MIHON_DATA:?Set MIHON_DATA to your TrueNAS dataset path}:/data"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

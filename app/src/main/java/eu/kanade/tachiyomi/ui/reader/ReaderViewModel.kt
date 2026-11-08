@@ -29,6 +29,7 @@ import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.download.remote.remoteReadingWindow
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
@@ -381,9 +382,15 @@ class ReaderViewModel(
         loader: ChapterLoader,
         chapter: ReaderChapter,
     ): ViewerChapters {
+        val chapterPos = chapterList.indexOf(chapter)
+        val remote = downloadManager.remoteLibrary
+        val bufferChapters = remoteReadingWindow(chapterList, chapterPos)
+        if (remote.enabled) {
+            remoteBufferJob?.cancel()
+            remote.setWindow(manga!!, bufferChapters.map { it.chapter })
+        }
         loader.loadChapter(chapter)
 
-        val chapterPos = chapterList.indexOf(chapter)
         val newChapters = ViewerChapters(
             chapter,
             chapterList.getOrNull(chapterPos - 1),
@@ -403,6 +410,26 @@ class ReaderViewModel(
                     viewerChapters = newChapters,
                     bookmarked = newChapters.currChapter.chapter.bookmark,
                 )
+            }
+        }
+        if (remote.enabled) {
+            // Current first, then two upcoming chapters, then the previous one. Every write checks the window.
+            val manga = manga!!
+            val source = state.value.source as? HttpSource
+            val ordered = listOf(chapter) +
+                bufferChapters.filter { it != chapter && chapterList.indexOf(it) > chapterPos } +
+                bufferChapters.filter { chapterList.indexOf(it) < chapterPos }
+            remoteBufferJob = viewModelScope.launch(Dispatchers.IO) {
+                for (buffered in ordered) {
+                    if (buffered != chapter && !canLoadAhead()) continue
+                    try {
+                        val stored = remote.ensure(manga, buffered.chapter, source)
+                        repeat(stored.pageCount) { remote.pageFile(stored.key, it) }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        logcat(LogPriority.WARN) { "Remote chapter buffer could not be filled" }
+                    }
+                }
             }
         }
         return newChapters
@@ -456,12 +483,14 @@ class ReaderViewModel(
     }
 
     private var nextChapterPreloadJob: Job? = null
+    private var remoteBufferJob: Job? = null
 
     /**
      * Preloads the next chapter of [chapters] once the current one has loaded, so it doesn't take bandwidth from the
      * pages being read. Skipped when loading ahead isn't allowed on this network.
      */
     private fun preloadNextChapterAfter(chapters: ViewerChapters) {
+        if (downloadManager.remoteLibrary.enabled) return
         val nextChapter = chapters.nextChapter ?: return
         nextChapterPreloadJob?.cancel()
         nextChapterPreloadJob = viewModelScope.launch(Dispatchers.IO) {
@@ -556,7 +585,7 @@ class ReaderViewModel(
     }
 
     private fun downloadNextChapters() {
-        if (downloadAheadAmount == 0) return
+        if (downloadManager.remoteLibrary.enabled || downloadAheadAmount == 0) return
         val manga = manga ?: return
 
         // Only download ahead if current + next chapter is already downloaded too to avoid jank
@@ -604,6 +633,7 @@ class ReaderViewModel(
      * @param currentChapter current chapter, which is going to be marked as read.
      */
     private suspend fun deleteChapterIfNeeded(currentChapter: ReaderChapter) {
+        if (downloadManager.remoteLibrary.enabled) return
         val removeAfterReadSlots = downloadPreferences.removeAfterReadSlots.get()
         if (removeAfterReadSlots == -1) return
 

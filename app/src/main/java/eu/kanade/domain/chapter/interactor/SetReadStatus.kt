@@ -46,7 +46,10 @@ class SetReadStatus(
             return Result.InternalError(e)
         }
 
-        if (read && downloadPreferences.removeAfterMarkedAsRead.get()) {
+        if (
+            read && downloadPreferences.removeAfterMarkedAsRead.get() &&
+            !downloadPreferences.remoteLibraryEnabled.get()
+        ) {
             chaptersToUpdate
                 // Chapters here still carry their pre-update read state; downstream
                 // deletion filtering (excluded categories) relies on the new state.

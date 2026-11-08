@@ -84,3 +84,7 @@ limitations under the License.
 </pre>
 
 </div>
+
+## Network library / TrueNAS
+
+This fork includes an optional NAS-backed download mode with a four-chapter reader buffer. See [setup and limitations (Polski)](server/README.md).

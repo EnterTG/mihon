@@ -6,6 +6,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -13,7 +14,10 @@ import androidx.compose.ui.util.fastMap
 import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import mihon.app.di.appGraph
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.i18n.MR
@@ -35,6 +39,7 @@ object SettingsDownloadScreen : SearchableSettings {
 
         val downloadPreferences = remember { context.appGraph.downloadPreferences }
         return listOf(
+            getRemoteLibraryGroup(downloadPreferences),
             Preference.PreferenceItem.SwitchPreference(
                 preference = downloadPreferences.downloadOnlyOverWifi,
                 title = stringResource(MR.strings.connected_to_wifi),
@@ -63,6 +68,80 @@ object SettingsDownloadScreen : SearchableSettings {
                 allCategories = allCategories,
             ),
             getDownloadAheadGroup(downloadPreferences = downloadPreferences),
+        )
+    }
+
+    @Composable
+    private fun getRemoteLibraryGroup(downloadPreferences: DownloadPreferences): Preference.PreferenceGroup {
+        val context = LocalContext.current
+        val remote = remember { context.appGraph.downloadManager.remoteLibrary }
+        val scope = rememberCoroutineScope()
+        var busy by remember { mutableStateOf(false) }
+        var result by remember { mutableStateOf<Boolean?>(null) }
+        return Preference.PreferenceGroup(
+            title = stringResource(MR.strings.remote_library_title),
+            preferenceItems = listOf(
+                Preference.PreferenceItem.EditTextPreference(
+                    preference = downloadPreferences.remoteLibraryUrl,
+                    title = stringResource(MR.strings.remote_library_url),
+                    onValueChanged = { value ->
+                        val url = value.trim().toHttpUrlOrNull()
+                        url != null && url.username.isEmpty() && url.password.isEmpty() &&
+                            url.encodedPath == "/" && url.query == null && url.fragment == null
+                    },
+                ),
+                Preference.PreferenceItem.EditTextPreference(
+                    preference = downloadPreferences.remoteLibraryToken,
+                    title = stringResource(MR.strings.remote_library_token),
+                    isPassword = true,
+                    onValueChanged = { it.trim().length >= 32 },
+                ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = downloadPreferences.remoteLibraryEnabled,
+                    title = stringResource(MR.strings.remote_library_enable),
+                    onValueChanged = { value ->
+                        if (value) {
+                            try {
+                                remote.refresh()
+                                result = true
+                                true
+                            } catch (e: Exception) {
+                                if (e is CancellationException) throw e
+                                result = false
+                                false
+                            }
+                        } else {
+                            true
+                        }
+                    },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.remote_library_refresh),
+                    subtitle = when {
+                        busy -> stringResource(MR.strings.remote_library_connecting)
+                        result == true -> stringResource(MR.strings.remote_library_connected)
+                        result == false -> stringResource(MR.strings.remote_library_connection_error)
+                        else -> null
+                    },
+                    onClick = {
+                        if (!busy) {
+                            busy = true
+                            scope.launch {
+                                try {
+                                    remote.refresh()
+                                    result = true
+                                } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
+                                    result = false
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                    },
+                ),
+                Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.remote_library_summary)),
+            ),
         )
     }
 
