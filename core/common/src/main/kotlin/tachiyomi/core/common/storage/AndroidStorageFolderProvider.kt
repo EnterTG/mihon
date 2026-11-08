@@ -14,10 +14,10 @@ import java.io.File
 class AndroidStorageFolderProvider : FolderProvider {
 
     override fun directory(): File {
-        // Keep the legacy default path stable when the app display name changes.
+        // Keep a separate, stable default directory for Yomira installations.
         return File(
             Environment.getExternalStorageDirectory().absolutePath + File.separator +
-                "Mihon",
+                "Yomira",
         )
     }
 
