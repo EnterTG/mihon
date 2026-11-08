@@ -75,6 +75,16 @@ Wybierz jeden sposób uruchomienia, aby dwa kontenery nie używały jednocześni
 
 Zainstaluj build Androida zawierający tę zmianę. Standardowa aplikacja Mihon nie ma tej funkcji.
 
+Do testowania obok oficjalnej aplikacji zbuduj wariant debug z katalogu głównego repozytorium:
+
+```sh
+./gradlew assembleDebug
+```
+
+APK znajdziesz w `app/build/outputs/apk/debug/`. Ten wariant używa osobnego identyfikatora `app.mihon.dev`, więc może działać równolegle z oficjalnym Mihon. Lokalny build domyślnie nie zawiera telemetrii ani automatycznego aktualizatora. Bibliotekę możesz przenieść przez zwykłą kopię zapasową Mihon i przywrócenie jej w nowej instalacji.
+
+Artefakt `release` z CI nadal używa `app.mihon` i podpisu CI; nie zastępuje oficjalnej aplikacji podpisanej innym kluczem. Zachowaj kopię zapasową przed zmianą używanej instalacji.
+
 1. Otwórz **Ustawienia → Pobieranie → Biblioteka sieciowa (TrueNAS)**.
 2. Wpisz adres `http://ADRES_TRUENAS:8088` albo adres HTTPS reverse proxy, bez dodatkowej ścieżki.
 3. Wpisz token z konfiguracji kontenera.
@@ -111,3 +121,7 @@ python3 -m unittest discover -s server/tests -v
 ```
 
 Testy serwera używają kontrolowanego źródła obrazów i prawdziwego lokalnego HTTP; nie wymagają dostępu do stron z mangą. Testy Androida obejmują granice okna, usuwanie rozdziałów, spóźniony prefetch i anulowany zapis. Sprawdź również na telefonie: pobranie na NAS bez plików w lokalnym katalogu pobierania, przejście o kilka rozdziałów, cofnięcie, utratę sieci, restart aplikacji oraz ręczne usuwanie z NAS.
+
+### Uwaga o CI w tym forku
+
+Testy serwera, formatowanie, testy Androida i migracje działają niezależnie od przeglądu zależności. Jeśli job `Review dependencies` zgłasza wyłączony Dependency graph, włącz go w ustawieniach repozytorium: https://github.com/EnterTG/mihon/settings/security_analysis. Nie wyłączono samej kontroli zależności.
