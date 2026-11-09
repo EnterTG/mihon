@@ -31,14 +31,21 @@ if (Config.includeTelemetry) {
 
 val keystorePropertiesFile = layout.settingsDirectory.file("keystore.properties").asFile
 
+// CI previews need a monotonically increasing versionCode and a versionName
+// that identifies the exact GitHub Release they can be upgraded from.
+val yomiraPreviewBuild = providers.gradleProperty("yomiraPreviewBuild").orNull?.toInt()
+require(yomiraPreviewBuild == null || yomiraPreviewBuild in 1..999_999) {
+    "yomiraPreviewBuild must be between 1 and 999999"
+}
+
 android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
         applicationId = "app.yomira"
 
-        versionCode = 39
-        versionName = "0.21.3"
+        versionCode = 39_000_000 + (yomiraPreviewBuild ?: 0)
+        versionName = "0.21.3" + (yomiraPreviewBuild?.let { "-yomira-preview.$it" } ?: "")
 
         buildConfigField("boolean", "TELEMETRY_INCLUDED", "${Config.includeTelemetry}")
         buildConfigField("boolean", "UPDATER_ENABLED", "${Config.enableUpdater}")
