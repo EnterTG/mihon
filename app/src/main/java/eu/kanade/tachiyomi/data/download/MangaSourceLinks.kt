@@ -1,17 +1,15 @@
 package eu.kanade.tachiyomi.data.download
 
-import app.cash.sqldelight.async.coroutines.awaitAsList
-import app.cash.sqldelight.async.coroutines.awaitAsOneOrNull
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.flow.first
-import tachiyomi.data.Database
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.repository.MangaRepository
+import tachiyomi.domain.manga.repository.MangaSourceLinkRepository
 import tachiyomi.domain.source.service.SourceManager
 import kotlin.math.abs
 
@@ -22,7 +20,7 @@ import kotlin.math.abs
 @Inject
 @SingleIn(AppScope::class)
 class MangaSourceLinks(
-    private val database: Database,
+    private val links: MangaSourceLinkRepository,
     private val mangaRepository: MangaRepository,
     private val mangaWithChapters: GetMangaWithChapters,
     private val sourceManager: SourceManager,
@@ -30,8 +28,7 @@ class MangaSourceLinks(
     data class Candidate(val source: HttpSource, val chapter: Chapter)
 
     suspend fun linked(primaryId: Long): List<Manga> =
-        database.manga_source_linkQueries.getLinkedMangaIds(primaryId)
-            .awaitAsList().mapNotNull { id ->
+        links.linkedIds(primaryId).mapNotNull { id ->
                 runCatching { mangaRepository.getMangaById(id) }.getOrNull()
             }
 
@@ -41,23 +38,23 @@ class MangaSourceLinks(
         val mirror = mangaRepository.getMangaById(mirrorId)
         require(primary.favorite && mirror.favorite) { "Add both entries to the library first" }
         require(primary.source != mirror.source) { "Mirrors must use different source extensions" }
-        require(database.manga_source_linkQueries.getPrimaryMangaId(primaryId).awaitAsOneOrNull() == null) {
+        require(links.primaryId(primaryId) == null) {
             "The primary book is already a mirror of another book"
         }
-        require(database.manga_source_linkQueries.getPrimaryMangaId(mirrorId).awaitAsOneOrNull() == null) {
+        require(links.primaryId(mirrorId) == null) {
             "This book is already linked to another primary book"
         }
-        require(database.manga_source_linkQueries.getLinkedMangaIds(mirrorId).awaitAsList().isEmpty()) {
+        require(links.linkedIds(mirrorId).isEmpty()) {
             "A primary book with mirrors cannot become a mirror"
         }
         require(linked(primaryId).none { it.source == mirror.source }) {
             "This source has already been linked"
         }
-        database.manga_source_linkQueries.insertLink(primaryId, mirrorId)
+        links.link(primaryId, mirrorId)
     }
 
     suspend fun unlink(primaryId: Long, mirrorId: Long) {
-        database.manga_source_linkQueries.removeLink(primaryId, mirrorId)
+        links.unlink(primaryId, mirrorId)
     }
 
     suspend fun candidates(manga: Manga, chapter: Chapter, primary: HttpSource): List<Candidate> {
