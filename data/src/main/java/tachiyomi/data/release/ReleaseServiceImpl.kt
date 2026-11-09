@@ -25,15 +25,19 @@ class ReleaseServiceImpl(
 ) : ReleaseService {
 
     override suspend fun latest(arguments: GetApplicationRelease.Arguments): Release? {
-        val release = withContext(Dispatchers.IO) {
+        // GitHub's /releases/latest excludes prereleases. Yomira publishes signed
+        // preview APKs, so look through recent published releases instead.
+        val releases = withContext(Dispatchers.IO) {
             with(json) {
                 networkService.client
-                    .newCall(GET("https://api.github.com/repos/${arguments.repository}/releases/latest"))
+                    .newCall(GET("https://api.github.com/repos/${arguments.repository}/releases?per_page=20"))
                     .awaitSuccess()
-                    .parseAs<GithubRelease>()
+                    .parseAs<List<GithubRelease>>()
             }
         }
 
+        val release = releases.firstOrNull { !it.draft && getDownloadLink(it, arguments.isFoss) != null }
+            ?: return null
         val downloadLink = getDownloadLink(release = release, isFoss = arguments.isFoss) ?: return null
 
         return Release(
@@ -47,7 +51,7 @@ class ReleaseServiceImpl(
     }
 
     private fun getDownloadLink(release: GithubRelease, isFoss: Boolean): String? {
-        val map = release.assets.associate { asset ->
+        val map = release.assets.filter { it.name.endsWith(".apk", ignoreCase = true) }.associate { asset ->
             BUILD_TYPES.find { "-$it" in asset.name } to asset.downloadLink
         }
 
