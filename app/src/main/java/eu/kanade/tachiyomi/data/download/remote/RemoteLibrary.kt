@@ -142,11 +142,11 @@ class RemoteLibrary(
         if (!enabled) return@withContext
         val event = RemoteHistoryEvent(
             eventId = UUID.randomUUID().toString(),
-            sourceId = (if (mirrorArchive) source?.id ?: manga.source else manga.source).toString(),
-            mangaUrl = if (mirrorArchive) variantMangaUrl(manga) else manga.url,
+            sourceId = manga.source.toString(),
+            mangaUrl = manga.url,
             mangaTitle = manga.title,
-            chapterUrl = if (mirrorArchive) originChapter.url else chapter.url,
-            chapterName = if (mirrorArchive) originChapter.name else chapter.name,
+            chapterUrl = chapter.url,
+            chapterName = chapter.name,
             lastRead = lastRead,
             readDuration = readDuration.coerceAtLeast(0),
             lastPageRead = chapter.lastPageRead,
@@ -279,11 +279,11 @@ class RemoteLibrary(
         val expectedNamespace = namespace
         val metadata = RemoteChapter(
             key = key,
-            sourceId = manga.source.toString(),
-            mangaUrl = manga.url,
+            sourceId = (if (mirrorArchive) source?.id ?: manga.source else manga.source).toString(),
+            mangaUrl = if (mirrorArchive) variantMangaUrl(manga) else manga.url,
             mangaTitle = manga.title,
-            chapterUrl = chapter.url,
-            chapterName = chapter.name,
+            chapterUrl = if (mirrorArchive) originChapter.url else chapter.url,
+            chapterName = if (mirrorArchive) originChapter.name else chapter.name,
             pageCount = pages.size,
         )
         val body = json.encodeToString(RemoteManifest(metadata, manifest))
