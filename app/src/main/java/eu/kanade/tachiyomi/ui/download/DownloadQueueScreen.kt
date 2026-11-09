@@ -189,36 +189,36 @@ object DownloadQueueScreen : Screen() {
             floatingActionButton = {
                 if (!remoteMode) {
                     val isRunning by viewModel.isDownloaderRunning.collectAsStateWithLifecycle()
-                SmallExtendedFloatingActionButton(
-                    text = {
-                        val id = if (isRunning) {
-                            MR.strings.action_pause
-                        } else {
-                            MR.strings.action_resume
-                        }
-                        Text(text = stringResource(id))
-                    },
-                    icon = {
-                        val icon = if (isRunning) {
-                            MaterialSymbols.RoundedFilled.Pause
-                        } else {
-                            MaterialSymbols.RoundedFilled.PlayArrow
-                        }
-                        Icon(imageVector = icon, contentDescription = null)
-                    },
-                    onClick = {
-                        if (isRunning) {
-                            viewModel.pauseDownloads()
-                        } else {
-                            viewModel.startDownloads()
-                        }
-                    },
-                    expanded = fabExpanded,
-                    modifier = Modifier.animateFloatingActionButton(
-                        visible = downloadList.isNotEmpty(),
-                        alignment = Alignment.BottomEnd,
-                    ),
-                )
+                    SmallExtendedFloatingActionButton(
+                        text = {
+                            val id = if (isRunning) {
+                                MR.strings.action_pause
+                            } else {
+                                MR.strings.action_resume
+                            }
+                            Text(text = stringResource(id))
+                        },
+                        icon = {
+                            val icon = if (isRunning) {
+                                MaterialSymbols.RoundedFilled.Pause
+                            } else {
+                                MaterialSymbols.RoundedFilled.PlayArrow
+                            }
+                            Icon(imageVector = icon, contentDescription = null)
+                        },
+                        onClick = {
+                            if (isRunning) {
+                                viewModel.pauseDownloads()
+                            } else {
+                                viewModel.startDownloads()
+                            }
+                        },
+                        expanded = fabExpanded,
+                        modifier = Modifier.animateFloatingActionButton(
+                            visible = downloadList.isNotEmpty(),
+                            alignment = Alignment.BottomEnd,
+                        ),
+                    )
                 }
             },
         ) { contentPadding ->
