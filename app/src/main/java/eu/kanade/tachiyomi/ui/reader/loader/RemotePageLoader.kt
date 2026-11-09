@@ -20,13 +20,14 @@ internal class RemotePageLoader(
     private val source: HttpSource?,
     private val library: RemoteLibrary,
     private val originChapter: Chapter = chapter.chapter,
+    private val manualOverride: Boolean = false,
 ) : PageLoader() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override var isLocal = false
     private var storedKey: String? = null
 
     override suspend fun getPages(): List<ReaderPage> {
-        val stored = library.ensure(manga, chapter.chapter, source, originChapter)
+        val stored = library.ensure(manga, chapter.chapter, source, originChapter, mirrorArchive = manualOverride)
         storedKey = stored.key
         return List(stored.pageCount) { index ->
             ReaderPage(index).also { it.chapter = chapter }
