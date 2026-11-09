@@ -251,6 +251,9 @@ class Downloader(
                 launch {
                     queueState.collect { queue ->
                         downloadJobs.keys.filter { it !in queue }.forEach { downloadJobs.remove(it)?.cancel() }
+                        // The last chapter can be cancelled by source cleanup just after removing itself.
+                        // Finish from this independent observer so the worker cannot stay alive with an empty queue.
+                        if (queue.isEmpty()) stopIfFinished(owner)
                     }
                 }
 
