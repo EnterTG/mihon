@@ -18,6 +18,19 @@ data class Download(
     val manga: Manga,
     val chapter: Chapter,
 ) {
+    // Source selection is per-attempt. Keep the primary source for queue identity and storage.
+    @Transient
+    var activeSource: HttpSource = source
+
+    @Transient
+    var activeChapter: Chapter = chapter
+
+    @Transient
+    var sourceAttempt: Int = 0
+
+    @Transient
+    var lastSourceId: Long? = null
+
     @Transient
     private val _pagesFlow = MutableStateFlow<List<Page>?>(null)
 
