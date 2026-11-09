@@ -30,28 +30,37 @@ class GetApplicationRelease(
         versionName: String,
         versionTag: String,
     ): Boolean {
-        // Removes prefixes like "r" or "v"
-        val newVersion = versionTag.replace("[^\\d.]".toRegex(), "")
-        return if (isNightly) {
-            // Nightly builds: based on releases in "mihonapp/mihon-preview" repo
-            // tagged as something like "r1234"
-            newVersion.toInt() > commitCount
-        } else {
-            // Release builds: based on releases in "mihonapp/mihon" repo
-            // tagged as something like "v0.1.2"
-            val oldVersion = versionName.replace("[^\\d.]".toRegex(), "")
-
-            val newSemVer = newVersion.split(".").map { it.toInt() }
-            val oldSemVer = oldVersion.split(".").map { it.toInt() }
-
-            oldSemVer.mapIndexed { index, i ->
-                if (newSemVer[index] > i) {
-                    return true
-                }
-            }
-
-            false
+        if (isNightly) {
+            return (versionTag.removePrefix("r").toIntOrNull() ?: return false) > commitCount
         }
+
+        val available = parseVersion(versionTag) ?: return false
+        val installed = parseVersion(versionName) ?: return false
+
+        // Compare components from left to right: 2.0.0 is newer than 1.99.99.
+        val length = maxOf(available.numbers.size, installed.numbers.size)
+        for (index in 0 until length) {
+            val comparison = (available.numbers.getOrNull(index) ?: 0)
+                .compareTo(installed.numbers.getOrNull(index) ?: 0)
+            if (comparison != 0) return comparison > 0
+        }
+
+        // CI preview builds keep the same base version. Compare their build numbers.
+        return (available.previewBuild ?: 0) > (installed.previewBuild ?: 0)
+    }
+
+    private fun parseVersion(value: String): Version? {
+        val match = VERSION_PATTERN.matchEntire(value.removePrefix("v")) ?: return null
+        return Version(
+            numbers = match.groupValues[1].split(".").map { it.toIntOrNull() ?: return null },
+            previewBuild = match.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull(),
+        )
+    }
+
+    private data class Version(val numbers: List<Int>, val previewBuild: Int?)
+
+    private companion object {
+        val VERSION_PATTERN = Regex("""^(\\d+(?:\\.\\d+)*)(?:-yomira-preview\\.(\\d+))?$""")
     }
 
     data class Arguments(
