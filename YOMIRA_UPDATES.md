@@ -54,4 +54,10 @@ podpisem, wykonaj kopię danych w Yomira, odinstaluj tylko starą Yomira,
 zainstaluj nowe APK i przywróć kopię. Oryginalny Mihon pozostaje osobną
 aplikacją i nie musi być odinstalowany.
 
+Weryfikacja CI sprawdza również stały odcisk certyfikatu SHA-256
+`0F:4F:78:C2:34:6E:50:88:E2:C3:0D:33:BD:5F:A6:1C:09:8A:03:AC:57:A6:66:D0:30:34:F8:A4:5A:5C:CB:5B`.
+Ten odcisk odpowiada przygotowanemu prywatnemu zestawowi startowemu. Jeśli świadomie
+wybierzesz inny klucz przed **pierwszym** wydaniem, dostosuj kontrolę
+`expected_digest` w workflow. Po pierwszej publikacji nie zmieniaj odcisku ani klucza.
+
 Nie zmieniaj ani nie regeneruj klucza dla kolejnych wydań.
