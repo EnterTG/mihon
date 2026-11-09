@@ -25,3 +25,7 @@ DELETE FROM manga_source_link WHERE primary_manga_id = :primaryId;
 insertLink:
 INSERT INTO manga_source_link(primary_manga_id, mirror_manga_id)
 VALUES (:primaryId, :mirrorId);
+
+removeLink:
+DELETE FROM manga_source_link
+WHERE primary_manga_id = :primaryId AND mirror_manga_id = :mirrorId;
