@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 
-data class ReaderChapter(private val loadedChapter: Chapter) {
+data class ReaderChapter(private val loadedChapter: Chapter, private val sourceRevision: Long = 0L) {
 
     /**
      * The chapter as it currently stands, which drifts from [loadedChapter] as the reader records
