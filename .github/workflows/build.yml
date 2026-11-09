@@ -44,7 +44,10 @@ jobs:
     name: Build & Test App
     runs-on: 'ubuntu-26.04'
     permissions:
-      contents: write # required to publish the fork's preview release
+      contents: read
+    outputs:
+      signed_ready: ${{ steps.signing.outputs.ready }}
+      release_tag: ${{ steps.verify.outputs.release_tag }}
 
     steps:
       - name: Checkout
@@ -78,21 +81,60 @@ jobs:
           name: test-report-${{ github.sha }}
           path: app/build/reports/tests/testDebugUnitTest
 
-      - name: Build app
-        run: ./gradlew assembleRelease -Pdist=ci
+      - name: Configure persistent Yomira signing
+        id: signing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon'
+        shell: bash
+        env:
+          YOMIRA_KEYSTORE_BASE64: ${{ secrets.YOMIRA_KEYSTORE_BASE64 }}
+          YOMIRA_SIGNING_PASSWORD: ${{ secrets.YOMIRA_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$YOMIRA_KEYSTORE_BASE64" || -z "$YOMIRA_SIGNING_PASSWORD" ]]; then
+            echo "::warning::Yomira signing secrets are missing. CI will build a test APK, but no release will be published."
+            exit 0
+          fi
+          printf '%s' "$YOMIRA_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/yomira.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/yomira.keystore" -storepass "$YOMIRA_SIGNING_PASSWORD" -alias yomira >/dev/null
+          echo "ready=true" >> "$GITHUB_OUTPUT"
 
-      - name: Verify standalone APK identity
+      - name: Build app
+        shell: bash
+        env:
+          MIHON_GITHUB_RELEASE: ${{ steps.signing.outputs.ready == 'true' }}
+          storeFile: ${{ runner.temp }}/yomira.keystore
+          storePassword: ${{ secrets.YOMIRA_SIGNING_PASSWORD }}
+          keyAlias: yomira
+          keyPassword: ${{ secrets.YOMIRA_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "${MIHON_GITHUB_RELEASE}" == "true" ]]; then
+            ./gradlew assembleRelease -Pdist=ci -Penable-updater=true "-PyomiraPreviewBuild=${GITHUB_RUN_NUMBER}"
+          else
+            ./gradlew assembleRelease -Pdist=ci
+          fi
+
+      - name: Verify standalone APK identity and release version
+        id: verify
         shell: bash
         run: |
+          set -euo pipefail
           aapt_tools=("$ANDROID_HOME"/build-tools/*/aapt)
           apk_info=$("${aapt_tools[-1]}" dump badging app/build/outputs/apk/release/app-arm64-v8a-release.apk)
           [[ "$apk_info" == "package: name='app.yomira' "* ]]
           echo "Verified standalone APK package: app.yomira"
+          if [[ "${YOMIRA_SIGNING_READY:-false}" == "true" ]]; then
+            version_name=$(sed -n "s/^package: .*versionName='\\([^']*\\)'.*/\\1/p" <<< "$apk_info" | head -n 1)
+            [[ "$version_name" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+-yomira-preview\\.[0-9]+$ ]]
+            echo "release_tag=v${version_name}" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          YOMIRA_SIGNING_READY: ${{ steps.signing.outputs.ready }}
 
-      - name: Upload APK
+      - name: Upload CI APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: yomira-arm64-v8a-${{ github.sha }}
+          name: yomira-ci-arm64-v8a-${{ github.sha }}
           path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
 
       - name: Upload mapping
@@ -101,24 +143,51 @@ jobs:
           name: mapping-${{ github.sha }}
           path: app/build/outputs/mapping/release
 
-      - name: Publish Yomira preview APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon'
+      - name: Upload signed APKs for publishing
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: yomira-signed-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/release/app-universal-release.apk
+            app/build/outputs/apk/release/app-arm64-v8a-release.apk
+
+  publish:
+    name: Publish signed Yomira update
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon' && needs.build.outputs.signed_ready == 'true'
+    needs: [build, remote-library]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed APKs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: yomira-signed-${{ github.sha }}
+          path: release-input
+
+      - name: Publish GitHub prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           set -euo pipefail
-          tag="v0.21.3-yomira-preview.${GITHUB_RUN_NUMBER}"
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+-yomira-preview\\.[0-9]+$ ]]
           mkdir -p release
-          cp app/build/outputs/apk/release/app-universal-release.apk "release/yomira-${tag}.apk"
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "release/yomira-arm64-v8a-${tag}.apk"
+          cp release-input/app-universal-release.apk "release/yomira-${RELEASE_TAG}.apk"
+          cp release-input/app-arm64-v8a-release.apk "release/yomira-arm64-v8a-${RELEASE_TAG}.apk"
           cat > release-notes.md <<'EOF'
-          Testowe wydanie Yomira (fork Mihon) z obsługą biblioteki TrueNAS, historii na serwerze i wielu źródeł rozdziałów.
+          Testowa wersja Yomira (fork Mihon) z obsługą TrueNAS i wielu źródeł.
+          W aplikacji pojawia się propozycja pobrania nowej wersji, którą można zainstalować po zatwierdzeniu przez Androida.
 
-          **Do instalacji na telefonie wybierz `yomira-v0.21.3-yomira-preview.NUMER.apk` (uniwersalny APK)**. Dla urządzeń ARM64 dostępna jest też mniejsza wersja `arm64-v8a`.
+          **Polecane dla większości telefonów:** uniwersalny APK o nazwie `yomira-v...apk`.
+          Wersja `arm64-v8a` jest mniejsza i działa na nowoczesnych telefonach ARM64.
 
-          **Uwaga o aktualizacjach:** ten build CI jest podpisywany tymczasowym kluczem debug Androida. Kolejne buildy mogą mieć inny podpis, więc aktualizacja nad już zainstalowaną Yomira może się nie udać. Zrób kopię danych aplikacji przed odinstalowaniem i przeinstalowaniem. Trwałe aktualizacje wymagają skonfigurowania stałego, prywatnego klucza podpisu w sekretach GitHub Actions.
+          Kolejne wydania podpisane tym samym stałym kluczem aktualizują się bez usuwania danych.
+          Użytkownicy wcześniejszych, podpisywanych doraźnym kluczem CI wersji muszą jeden raz wykonać kopię zapasową Yomira, odinstalować starą wersję i przywrócić kopię w nowej.
 
-          Pakiet Androida: `app.yomira` — instaluje się niezależnie od Mihon.
+          Identyfikator aplikacji: `app.yomira` (nie koliduje z oficjalnym Mihon).
           EOF
-          gh release create "$tag" release/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Yomira Preview ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md --prerelease
+          gh release create "$RELEASE_TAG" release/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Yomira $RELEASE_TAG" --notes-file release-notes.md --prerelease
