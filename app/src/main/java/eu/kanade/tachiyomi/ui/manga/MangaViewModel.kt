@@ -100,8 +100,8 @@ import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.interactor.SetMangaChapterFlags
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaWithChapterCount
-import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.manga.model.applyFilter
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.i18n.MR
@@ -179,8 +179,11 @@ class MangaViewModel(
     fun toggleSourceLink(option: LinkOption) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                if (option.linked) mangaSourceLinks.unlink(mangaId, option.id)
-                else mangaSourceLinks.link(mangaId, option.id)
+                if (option.linked) {
+                    mangaSourceLinks.unlink(mangaId, option.id)
+                } else {
+                    mangaSourceLinks.link(mangaId, option.id)
+                }
                 refreshLinkedSources()
             } catch (e: Exception) {
                 sourceLinkError.value = e.message ?: "Unable to change linked sources"
