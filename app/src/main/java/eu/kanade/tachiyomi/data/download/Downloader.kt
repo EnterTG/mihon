@@ -342,7 +342,10 @@ class Downloader(
 
             // Each attempt uses a single source's entire chapter, rotating mirrors on failure.
             val candidates = mangaSourceLinks.candidates(download.manga, download.chapter, download.source)
-            val index = ((download.chapter.id and Long.MAX_VALUE) + download.sourceAttempt).rem(candidates.size).toInt()
+            val index = (
+                (download.chapter.id and Long.MAX_VALUE).rem(candidates.size).toInt() +
+                    download.sourceAttempt.rem(candidates.size)
+                ).rem(candidates.size)
             val chosen = candidates[index]
             if (download.lastSourceId != null && download.lastSourceId != chosen.source.id) {
                 // Never mix partial image pages or expired URLs from different translations.
@@ -516,7 +519,10 @@ class Downloader(
         // A retry from another source must start clean. Do not reuse pages from a different edition.
         val sourceMarker = tmpDir.findFile(".yomira-source")
         val previousSourceId = sourceMarker?.openInputStream()?.bufferedReader()?.use { it.readText() }
-        if (previousSourceId != null && previousSourceId != download.activeSource.id.toString()) {
+        if (
+            (previousSourceId == null && download.activeSource.id != download.source.id) ||
+            (previousSourceId != null && previousSourceId != download.activeSource.id.toString())
+        ) {
             tmpDir.listFiles()?.forEach { it.delete() }
             download.pages = null
         }
