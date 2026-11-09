@@ -60,7 +60,7 @@ class GetApplicationRelease(
     private data class Version(val numbers: List<Int>, val previewBuild: Int?)
 
     private companion object {
-        val VERSION_PATTERN = Regex("""^(\\d+(?:\\.\\d+)*)(?:-yomira-preview\\.(\\d+))?$""")
+        val VERSION_PATTERN = Regex("""^(\d+(?:\.\d+)*)(?:-yomira-preview\.(\d+))?$""")
     }
 
     data class Arguments(
