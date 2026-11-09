@@ -142,11 +142,11 @@ class RemoteLibrary(
         if (!enabled) return@withContext
         val event = RemoteHistoryEvent(
             eventId = UUID.randomUUID().toString(),
-            sourceId = (source?.id ?: manga.source).toString(),
-            mangaUrl = manga.url,
+            sourceId = (if (mirrorArchive) source?.id ?: manga.source else manga.source).toString(),
+            mangaUrl = if (mirrorArchive) variantMangaUrl(manga) else manga.url,
             mangaTitle = manga.title,
-            chapterUrl = originChapter.url,
-            chapterName = originChapter.name,
+            chapterUrl = if (mirrorArchive) originChapter.url else chapter.url,
+            chapterName = if (mirrorArchive) originChapter.name else chapter.name,
             lastRead = lastRead,
             readDuration = readDuration.coerceAtLeast(0),
             lastPageRead = chapter.lastPageRead,
@@ -185,9 +185,12 @@ class RemoteLibrary(
     fun key(manga: Manga, chapter: Chapter): String =
         "${manga.source}\n${manga.url}\n${chapter.url}".encodeUtf8().sha256().hex()
 
-    /** The NAS requires SHA-256(sourceId, mangaUrl, chapterUrl). Mirrors get their own archive. */
+    /** Manual reader versions have their own server-side archives, even if the primary source was selected. */
+    private fun variantMangaUrl(manga: Manga): String = "${manga.url}#yomira-reader-variant:${manga.source}"
+
     fun archiveKey(manga: Manga, chapter: Chapter, source: HttpSource?, originChapter: Chapter = chapter): String =
-        "${source?.id ?: manga.source}\n${manga.url}\n${originChapter.url}".encodeUtf8().sha256().hex()
+        "${source?.id ?: manga.source}\n${variantMangaUrl(manga)}\n${originChapter.url}"
+            .encodeUtf8().sha256().hex()
 
     fun contains(sourceId: Long, chapterUrl: String): Boolean =
         entries().any { it.sourceId == sourceId.toString() && it.chapterUrl == chapterUrl }
@@ -251,9 +254,10 @@ class RemoteLibrary(
         chapter: Chapter,
         source: HttpSource?,
         originChapter: Chapter = chapter,
+        mirrorArchive: Boolean = false,
     ): RemoteChapter = withContext(Dispatchers.IO) {
         indexReady.await()
-        val key = archiveKey(manga, chapter, source, originChapter)
+        val key = if (mirrorArchive) archiveKey(manga, chapter, source, originChapter) else key(manga, chapter)
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         // The catalog can be stale, e.g. a second device has downloaded this chapter.
         refresh()
@@ -313,7 +317,10 @@ class RemoteLibrary(
     suspend fun deleteManga(manga: Manga) {
         val expectedNamespace = namespace
         val keys = entries()
-            .filter { it.sourceId == manga.source.toString() && it.mangaUrl == manga.url }
+            .filter {
+                (it.sourceId == manga.source.toString() && it.mangaUrl == manga.url) ||
+                    it.mangaUrl == variantMangaUrl(manga)
+            }
             .map { it.key }.toSet()
         withContext(Dispatchers.IO) {
             keys.forEach { client.newCall(request("chapters/$it").delete().build()).awaitSuccess().close() }
