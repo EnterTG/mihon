@@ -206,6 +206,7 @@ class ReaderViewModel(
     private var pendingProgressSave: Job? = null
 
     private var chapterToDownload: Download? = null
+    private var sourceRevision = 0L
 
     private var unfilteredChapterList: List<Chapter>? = null
 
@@ -877,7 +878,7 @@ class ReaderViewModel(
                 sourceLinks.selectSource(active.chapter.id, selection)
                 val index = chapterList.indexOfFirst { it === active }
                 check(index >= 0) { "The chapter is no longer active" }
-                val replacement = ReaderChapter(active.chapter).apply {
+                val replacement = ReaderChapter(active.chapter, ++sourceRevision).apply {
                     requestedPage = active.requestedPage
                 }
                 chapterList = chapterList.toMutableList().apply { set(index, replacement) }
