@@ -29,8 +29,8 @@ class MangaSourceLinks(
 
     suspend fun linked(primaryId: Long): List<Manga> =
         links.linkedIds(primaryId).mapNotNull { id ->
-                runCatching { mangaRepository.getMangaById(id) }.getOrNull()
-            }
+            runCatching { mangaRepository.getMangaById(id) }.getOrNull()
+        }
 
     suspend fun link(primaryId: Long, mirrorId: Long) {
         require(primaryId != mirrorId) { "A source cannot link to itself" }
