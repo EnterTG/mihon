@@ -397,10 +397,10 @@ class ReaderViewModel(
         val selected = (state.value.source as? HttpSource)?.let {
             sourceLinks.selectedCandidate(manga!!, chapter.chapter, it)
         }
-        val isMirror = selected != null && selected.source.id != manga!!.source
+        val isManualSelection = sourceLinks.preferredSourceId(chapter.chapter.id) != null
         if (remote.enabled) {
             remoteBufferJob?.cancel()
-            val override = if (isMirror && selected != null) {
+            val override = if (isManualSelection && selected != null) {
                 mapOf(chapter.chapter.id to remote.archiveKey(manga!!, chapter.chapter, selected.source, selected.chapter))
             } else {
                 emptyMap()
@@ -440,7 +440,7 @@ class ReaderViewModel(
                 bufferChapters.filter { chapterList.indexOf(it) < chapterPos }
             remoteBufferJob = viewModelScope.launch(Dispatchers.IO) {
                 for (buffered in ordered) {
-                    if (buffered == chapter && isMirror) continue
+                    if (buffered == chapter && isManualSelection) continue
                     if (buffered != chapter && !canLoadAhead()) continue
                     try {
                         val stored = remote.ensure(manga, buffered.chapter, source)
@@ -866,7 +866,7 @@ class ReaderViewModel(
         val manga = state.value.manga ?: return
         val primary = state.value.source as? HttpSource ?: return
         val previous = sourceLinks.preferredSourceId(active.chapter.id)
-        val selection = sourceId.takeUnless { it == primary.id }
+        val selection = sourceId
         if (selection == previous) return
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -884,7 +884,26 @@ class ReaderViewModel(
                 try {
                     loadChapter(checkNotNull(loader), replacement)
                 } catch (e: Throwable) {
+                    replacement.pageLoader?.recycle()
                     chapterList = chapterList.toMutableList().apply { set(index, active) }
+                    if (downloadManager.remoteLibrary.enabled) {
+                        val window = remoteReadingWindow(chapterList, index).map { it.chapter }
+                        val priorSource = sourceLinks.candidates(manga, active.chapter, primary)
+                            .firstOrNull { it.source.id == previous }
+                        val oldOverride = if (previous != null && priorSource != null) {
+                            mapOf(
+                                active.chapter.id to downloadManager.remoteLibrary.archiveKey(
+                                    manga,
+                                    active.chapter,
+                                    priorSource.source,
+                                    priorSource.chapter,
+                                ),
+                            )
+                        } else {
+                            emptyMap()
+                        }
+                        downloadManager.remoteLibrary.setWindow(manga, window, oldOverride)
+                    }
                     throw e
                 }
             } catch (e: Throwable) {
