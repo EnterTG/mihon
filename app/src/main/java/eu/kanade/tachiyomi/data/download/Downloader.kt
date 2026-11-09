@@ -92,6 +92,7 @@ class Downloader(
     private val store: DownloadStore,
     private val notifier: DownloadNotifier,
     private val remoteLibrary: RemoteLibrary,
+    private val mangaSourceLinks: MangaSourceLinks,
 ) {
     /**
      * Queue where active downloads are kept.
@@ -339,12 +340,42 @@ class Downloader(
             // Removed from the queue between being picked and starting
             if (download !in queueState.value) return@launch
 
-            // Bound stalled extensions and NAS requests too, while preserving partial files for the next attempt.
-            withTimeout(35.minutes) { downloadChapter(download, slots, pagesStarted) }
+            // Each attempt uses a single source's entire chapter, rotating mirrors on failure.
+            val candidates = mangaSourceLinks.candidates(download.manga, download.chapter, download.source)
+            val preferredIndex = candidates.indexOfFirst {
+                it.source.id == mangaSourceLinks.preferredSourceId(download.chapter.id)
+            }
+            val firstIndex = preferredIndex.takeIf { it >= 0 }
+                ?: (download.chapter.id and Long.MAX_VALUE).rem(candidates.size).toInt()
+            // Try each matching source immediately; the existing delayed retry queue handles
+            // the case where every source fails. A single chapter never combines two editions.
+            for (offset in candidates.indices) {
+                currentCoroutineContext().ensureActive()
+                val index = (firstIndex + download.sourceAttempt.rem(candidates.size) + offset).rem(candidates.size)
+                val chosen = candidates[index]
+                if (download.lastSourceId != null && download.lastSourceId != chosen.source.id) {
+                    download.pages = null
+                }
+                download.activeSource = chosen.source
+                download.activeChapter = chosen.chapter
+                download.lastSourceId = chosen.source.id
+                if (offset > 0) download.status = Download.State.QUEUE
 
-            // Remove successful download from queue
+                try {
+                    withTimeout(35.minutes) { downloadChapter(download, slots, pagesStarted) }
+                } catch (e: Throwable) {
+                    currentCoroutineContext().ensureActive()
+                    logcat(LogPriority.ERROR, e)
+                    download.status = Download.State.ERROR
+                    notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
+                }
+                if (download.status == Download.State.DOWNLOADED) break
+            }
+
             if (download.status == Download.State.DOWNLOADED) {
                 removeFromQueue(download)
+            } else {
+                download.status = Download.State.ERROR
             }
             stopIfFinished(owner)
         } catch (e: Throwable) {
@@ -354,6 +385,7 @@ class Downloader(
             download.status = Download.State.ERROR
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
         } finally {
+            if (download.status == Download.State.ERROR) download.sourceAttempt++
             // Also when the chapter fails before its pages, so the source moves on to the next one
             pagesStarted.complete(Unit)
         }
@@ -441,7 +473,12 @@ class Downloader(
             try {
                 download.status = Download.State.DOWNLOADING
                 slots.withPermit {
-                    val stored = remoteLibrary.ensure(download.manga, download.chapter, download.source)
+                    val stored = remoteLibrary.ensure(
+                        download.manga,
+                        download.chapter,
+                        download.activeSource,
+                        download.activeChapter,
+                    )
                     download.pages = List(stored.pageCount) { index ->
                         Page(index).apply {
                             progress = 100
@@ -493,12 +530,28 @@ class Downloader(
         }
 
         val tmpDir = mangaDir.createDirectory(chapterDirname + TMP_DIR_SUFFIX)!!
+        // A retry from another source must start clean. Do not reuse pages from a different edition.
+        val sourceMarker = tmpDir.findFile(".yomira-source")
+        val previousSourceId = sourceMarker?.openInputStream()?.bufferedReader()?.use { it.readText() }
+        if (
+            (previousSourceId == null && download.activeSource.id != download.source.id) ||
+            (previousSourceId != null && previousSourceId != download.activeSource.id.toString())
+        ) {
+            tmpDir.listFiles()?.forEach { it.delete() }
+            download.pages = null
+        }
+        if (tmpDir.findFile(".yomira-source") == null) {
+            tmpDir.createFile(".yomira-source")!!.openOutputStream().bufferedWriter().use {
+                it.write(download.activeSource.id.toString())
+            }
+        }
 
         try {
             // If the page list already exists, start from the file
             val pageList = download.pages ?: run {
                 // Otherwise, pull page list from network and add them to download object
-                val pages = withTimeout(2.minutes) { download.source.getPageList(download.chapter.toSChapter()) }
+                val pages =
+                    withTimeout(2.minutes) { download.activeSource.getPageList(download.activeChapter.toSChapter()) }
 
                 if (pages.isEmpty()) {
                     throw Exception(context.stringResource(MR.strings.page_list_empty_error))
@@ -521,7 +574,7 @@ class Downloader(
                         if (page.imageUrl.isNullOrEmpty()) {
                             page.status = Page.State.LoadPage
                             try {
-                                page.imageUrl = withTimeout(2.minutes) { download.source.getImageUrl(page) }
+                                page.imageUrl = withTimeout(2.minutes) { download.activeSource.getImageUrl(page) }
                             } catch (e: Throwable) {
                                 currentCoroutineContext().ensureActive()
                                 page.status = Page.State.Error(e)
@@ -546,8 +599,11 @@ class Downloader(
                 tmpDir,
                 download.manga,
                 download.chapter,
-                download.source,
+                download.activeSource,
             )
+
+            // Remove the internal marker from both CBZ files and plain directories.
+            tmpDir.findFile(".yomira-source")?.delete()
 
             // Only rename the directory if it's downloaded
             if (downloadPreferences.saveChaptersAsCBZ.get()) {
@@ -595,7 +651,7 @@ class Downloader(
             val file = when {
                 imageFile != null -> imageFile
                 else -> copyImageFromCache(page.imageUrl!!, tmpDir, filename)
-                    ?: downloadImage(page, download.source, tmpDir, filename)
+                    ?: downloadImage(page, download.activeSource, tmpDir, filename)
             }
 
             // When the page is ready, set page path, progress (just in case) and status

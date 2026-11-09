@@ -4,6 +4,7 @@ import android.content.Context
 import eu.kanade.domain.chapter.model.toSChapter
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.data.download.MangaSourceLinks
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
@@ -28,6 +29,7 @@ class ChapterLoader(
     private val context: Context,
     private val downloadManager: DownloadManager,
     private val downloadProvider: DownloadProvider,
+    private val sourceLinks: MangaSourceLinks,
     private val chapterCache: ChapterCache,
     private val appScope: CoroutineScope,
     private val canLoadAhead: () -> Boolean,
@@ -83,8 +85,25 @@ class ChapterLoader(
      * Returns the page loader to use for this [chapter].
      */
     private suspend fun getPageLoader(chapter: ReaderChapter): PageLoader {
+        val selected = (source as? HttpSource)?.let {
+            sourceLinks.selectedCandidate(manga, chapter.chapter, it)
+        }
+        val selectedSource = selected?.source ?: source
+        val originChapter = selected?.chapter ?: chapter.chapter
+        val manualOverride = sourceLinks.preferredSourceId(chapter.chapter.id) != null
         if (downloadManager.remoteLibrary.enabled && source !is LocalSource) {
-            return RemotePageLoader(chapter, manga, source as? HttpSource, downloadManager.remoteLibrary)
+            return RemotePageLoader(
+                chapter,
+                manga,
+                selectedSource as? HttpSource,
+                downloadManager.remoteLibrary,
+                originChapter,
+                manualOverride,
+            )
+        }
+        if (selected != null && (manualOverride || selectedSource.id != source.id)) {
+            // Do not serve the primary source's already downloaded CBZ when a mirror was selected.
+            return HttpPageLoader(chapter, selected.source, chapterCache, appScope, canLoadAhead, originChapter)
         }
         val dbChapter = chapter.chapter
         val isDownloaded = downloadManager.isChapterDownloadedOnDisk(

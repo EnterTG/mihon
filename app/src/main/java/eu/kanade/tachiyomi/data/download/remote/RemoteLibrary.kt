@@ -185,6 +185,13 @@ class RemoteLibrary(
     fun key(manga: Manga, chapter: Chapter): String =
         "${manga.source}\n${manga.url}\n${chapter.url}".encodeUtf8().sha256().hex()
 
+    /** Manual reader versions have their own server-side archives, even if the primary source was selected. */
+    private fun variantMangaUrl(manga: Manga): String = "${manga.url}#yomira-reader-variant:${manga.source}"
+
+    fun archiveKey(manga: Manga, chapter: Chapter, source: HttpSource?, originChapter: Chapter = chapter): String =
+        "${source?.id ?: manga.source}\n${variantMangaUrl(manga)}\n${originChapter.url}"
+            .encodeUtf8().sha256().hex()
+
     fun contains(sourceId: Long, chapterUrl: String): Boolean =
         entries().any { it.sourceId == sourceId.toString() && it.chapterUrl == chapterUrl }
 
@@ -246,15 +253,17 @@ class RemoteLibrary(
         manga: Manga,
         chapter: Chapter,
         source: HttpSource?,
+        originChapter: Chapter = chapter,
+        mirrorArchive: Boolean = false,
     ): RemoteChapter = withContext(Dispatchers.IO) {
         indexReady.await()
-        val key = key(manga, chapter)
+        val key = if (mirrorArchive) archiveKey(manga, chapter, source, originChapter) else key(manga, chapter)
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         // The catalog can be stale, e.g. a second device has downloaded this chapter.
         refresh()
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         checkNotNull(source) { "Install the source extension to download this chapter to the server" }
-        val pages = source.getPageList(chapter.toSChapter())
+        val pages = source.getPageList(originChapter.toSChapter())
         require(pages.size in 1..2000) { "Remote chapters must contain 1 to 2000 pages" }
         val manifest = pages.map { page ->
             if (page.imageUrl.isNullOrEmpty()) page.imageUrl = source.getImageUrl(page)
@@ -270,11 +279,11 @@ class RemoteLibrary(
         val expectedNamespace = namespace
         val metadata = RemoteChapter(
             key = key,
-            sourceId = manga.source.toString(),
-            mangaUrl = manga.url,
+            sourceId = (if (mirrorArchive) source?.id ?: manga.source else manga.source).toString(),
+            mangaUrl = if (mirrorArchive) variantMangaUrl(manga) else manga.url,
             mangaTitle = manga.title,
-            chapterUrl = chapter.url,
-            chapterName = chapter.name,
+            chapterUrl = if (mirrorArchive) originChapter.url else chapter.url,
+            chapterName = if (mirrorArchive) originChapter.name else chapter.name,
             pageCount = pages.size,
         )
         val body = json.encodeToString(RemoteManifest(metadata, manifest))
@@ -308,7 +317,10 @@ class RemoteLibrary(
     suspend fun deleteManga(manga: Manga) {
         val expectedNamespace = namespace
         val keys = entries()
-            .filter { it.sourceId == manga.source.toString() && it.mangaUrl == manga.url }
+            .filter {
+                (it.sourceId == manga.source.toString() && it.mangaUrl == manga.url) ||
+                    it.mangaUrl == variantMangaUrl(manga)
+            }
             .map { it.key }.toSet()
         withContext(Dispatchers.IO) {
             keys.forEach { client.newCall(request("chapters/$it").delete().build()).awaitSuccess().close() }
@@ -322,8 +334,12 @@ class RemoteLibrary(
     }
 
     /** Called only when the active chapter changes, never by a speculative page loader. */
-    suspend fun setWindow(manga: Manga, chapters: List<Chapter>) = withContext(Dispatchers.IO) {
-        buffer.setWindow(chapters.map { "$namespace/${key(manga, it)}" }.toSet())
+    suspend fun setWindow(
+        manga: Manga,
+        chapters: List<Chapter>,
+        chapterKeyOverrides: Map<Long, String> = emptyMap(),
+    ) = withContext(Dispatchers.IO) {
+        buffer.setWindow(chapters.map { "$namespace/${chapterKeyOverrides[it.id] ?: key(manga, it)}" }.toSet())
     }
 
     /** Files are written atomically and only inside the latest window, including after cancellation. */

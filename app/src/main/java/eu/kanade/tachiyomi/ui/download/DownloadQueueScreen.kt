@@ -55,6 +55,7 @@ object DownloadQueueScreen : Screen() {
         val navigator = LocalNavigator.currentOrThrow
         val viewModel = metroViewModel<DownloadQueueViewModel>()
         val downloadList by viewModel.state.collectAsStateWithLifecycle()
+        val remoteMode by viewModel.remoteMode.collectAsStateWithLifecycle()
         val downloadCount by remember {
             derivedStateOf { downloadList.sumOf { it.downloads.size } }
         }
@@ -108,7 +109,7 @@ object DownloadQueueScreen : Screen() {
                     },
                     navigateUp = navigator::pop,
                     actions = {
-                        if (downloadList.isNotEmpty()) {
+                        if (downloadList.isNotEmpty() && !remoteMode) {
                             var sortExpanded by remember { mutableStateOf(false) }
                             val onDismissRequest = { sortExpanded = false }
                             DropdownMenu(
@@ -186,37 +187,39 @@ object DownloadQueueScreen : Screen() {
                 )
             },
             floatingActionButton = {
-                val isRunning by viewModel.isDownloaderRunning.collectAsStateWithLifecycle()
-                SmallExtendedFloatingActionButton(
-                    text = {
-                        val id = if (isRunning) {
-                            MR.strings.action_pause
-                        } else {
-                            MR.strings.action_resume
-                        }
-                        Text(text = stringResource(id))
-                    },
-                    icon = {
-                        val icon = if (isRunning) {
-                            MaterialSymbols.RoundedFilled.Pause
-                        } else {
-                            MaterialSymbols.RoundedFilled.PlayArrow
-                        }
-                        Icon(imageVector = icon, contentDescription = null)
-                    },
-                    onClick = {
-                        if (isRunning) {
-                            viewModel.pauseDownloads()
-                        } else {
-                            viewModel.startDownloads()
-                        }
-                    },
-                    expanded = fabExpanded,
-                    modifier = Modifier.animateFloatingActionButton(
-                        visible = downloadList.isNotEmpty(),
-                        alignment = Alignment.BottomEnd,
-                    ),
-                )
+                if (!remoteMode) {
+                    val isRunning by viewModel.isDownloaderRunning.collectAsStateWithLifecycle()
+                    SmallExtendedFloatingActionButton(
+                        text = {
+                            val id = if (isRunning) {
+                                MR.strings.action_pause
+                            } else {
+                                MR.strings.action_resume
+                            }
+                            Text(text = stringResource(id))
+                        },
+                        icon = {
+                            val icon = if (isRunning) {
+                                MaterialSymbols.RoundedFilled.Pause
+                            } else {
+                                MaterialSymbols.RoundedFilled.PlayArrow
+                            }
+                            Icon(imageVector = icon, contentDescription = null)
+                        },
+                        onClick = {
+                            if (isRunning) {
+                                viewModel.pauseDownloads()
+                            } else {
+                                viewModel.startDownloads()
+                            }
+                        },
+                        expanded = fabExpanded,
+                        modifier = Modifier.animateFloatingActionButton(
+                            visible = downloadList.isNotEmpty(),
+                            alignment = Alignment.BottomEnd,
+                        ),
+                    )
+                }
             },
         ) { contentPadding ->
             if (downloadList.isEmpty()) {
@@ -227,17 +230,21 @@ object DownloadQueueScreen : Screen() {
                 return@Scaffold
             }
 
-            DownloadQueueList(
-                sections = downloadList,
-                lazyListState = rememberLazyListState(),
-                contentPadding = contentPadding,
-                onReorder = viewModel::reorder,
-                onMove = viewModel::move,
-                onMoveSeries = viewModel::moveSeries,
-                onCancel = { viewModel.cancel(listOf(it)) },
-                onCancelSeries = viewModel::cancelSeries,
-                modifier = Modifier.nestedScroll(nestedScrollConnection),
-            )
+            if (remoteMode) {
+                RemoteDownloadStatusList(downloadList, contentPadding)
+            } else {
+                DownloadQueueList(
+                    sections = downloadList,
+                    lazyListState = rememberLazyListState(),
+                    contentPadding = contentPadding,
+                    onReorder = viewModel::reorder,
+                    onMove = viewModel::move,
+                    onMoveSeries = viewModel::moveSeries,
+                    onCancel = { viewModel.cancel(listOf(it)) },
+                    onCancelSeries = viewModel::cancelSeries,
+                    modifier = Modifier.nestedScroll(nestedScrollConnection),
+                )
+            }
         }
     }
 }

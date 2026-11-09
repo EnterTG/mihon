@@ -280,7 +280,7 @@ class ReaderActivity : BaseActivity() {
             }
 
             val onDismissRequest = viewModel::closeDialog
-            when (state.dialog) {
+            when (val dialog = state.dialog) {
                 is ReaderViewModel.Dialog.Settings -> {
                     ReaderSettingsDialog(
                         onDismissRequest = onDismissRequest,
@@ -309,6 +309,19 @@ class ReaderActivity : BaseActivity() {
                             menuToggleToast?.cancel()
                             menuToggleToast = toast(stringRes)
                         },
+                    )
+                }
+                is ReaderViewModel.Dialog.SourceSelect -> {
+                    ReaderSourceSelectDialog(
+                        dialog = dialog,
+                        onChoose = viewModel::switchChapterSource,
+                        onDismiss = onDismissRequest,
+                    )
+                }
+                is ReaderViewModel.Dialog.SourceError -> {
+                    ReaderSourceErrorDialog(
+                        message = dialog.message,
+                        onDismiss = onDismissRequest,
                     )
                 }
                 is ReaderViewModel.Dialog.PageActions -> {
@@ -559,6 +572,7 @@ class ReaderActivity : BaseActivity() {
 
             mangaTitle = state.manga?.title,
             chapterTitle = state.currentChapter?.chapter?.name,
+
             navigateUp = onBackPressedDispatcher::onBackPressed,
             onClickTopAppBar = ::openMangaScreen,
             bookmarked = state.bookmarked,
@@ -566,6 +580,7 @@ class ReaderActivity : BaseActivity() {
             onOpenInWebView = ::openChapterInWebView.takeIf { isHttpSource },
             onOpenInBrowser = ::openChapterInBrowser.takeIf { isHttpSource },
             onShare = ::shareChapter.takeIf { isHttpSource },
+            onSelectSource = viewModel::openSourceSelectDialog.takeIf { state.hasLinkedSources },
 
             chapterNavigatorType = if (!verticalNavigator) {
                 if (readingMode == ReadingMode.RIGHT_TO_LEFT) {

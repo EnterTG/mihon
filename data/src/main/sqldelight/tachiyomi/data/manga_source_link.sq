@@ -1,0 +1,31 @@
+CREATE TABLE manga_source_link(
+    primary_manga_id INTEGER NOT NULL REFERENCES manga(id) ON DELETE CASCADE,
+    mirror_manga_id INTEGER NOT NULL UNIQUE REFERENCES manga(id) ON DELETE CASCADE,
+    PRIMARY KEY(primary_manga_id, mirror_manga_id),
+    CHECK(primary_manga_id != mirror_manga_id)
+);
+
+getLinkedMangaIds:
+SELECT mirror_manga_id FROM manga_source_link
+WHERE primary_manga_id = :primaryId
+ORDER BY mirror_manga_id;
+
+getPrimaryMangaId:
+SELECT primary_manga_id FROM manga_source_link
+WHERE mirror_manga_id = :mirrorId;
+
+getLinkedPrimaryIds:
+SELECT primary_manga_id FROM manga_source_link
+WHERE primary_manga_id = :primaryId
+LIMIT 1;
+
+clearLinks:
+DELETE FROM manga_source_link WHERE primary_manga_id = :primaryId;
+
+insertLink:
+INSERT INTO manga_source_link(primary_manga_id, mirror_manga_id)
+VALUES (:primaryId, :mirrorId);
+
+removeLink:
+DELETE FROM manga_source_link
+WHERE primary_manga_id = :primaryId AND mirror_manga_id = :mirrorId;

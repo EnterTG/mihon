@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 
 internal class RemotePageLoader(
@@ -18,12 +19,16 @@ internal class RemotePageLoader(
     private val manga: Manga,
     private val source: HttpSource?,
     private val library: RemoteLibrary,
+    private val originChapter: Chapter = chapter.chapter,
+    private val manualOverride: Boolean = false,
 ) : PageLoader() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     override var isLocal = false
+    private var storedKey: String? = null
 
     override suspend fun getPages(): List<ReaderPage> {
-        val stored = library.ensure(manga, chapter.chapter, source)
+        val stored = library.ensure(manga, chapter.chapter, source, originChapter, mirrorArchive = manualOverride)
+        storedKey = stored.key
         return List(stored.pageCount) { index ->
             ReaderPage(index).also { it.chapter = chapter }
         }
@@ -32,7 +37,8 @@ internal class RemotePageLoader(
     override suspend fun loadPage(page: ReaderPage) {
         try {
             page.status = Page.State.DownloadImage
-            val file = library.pageFile(library.key(manga, chapter.chapter), page.index)
+            val key = checkNotNull(storedKey) { "Remote chapter has not been loaded" }
+            val file = library.pageFile(key, page.index)
             page.stream = { file.inputStream() }
             page.status = Page.State.Ready
         } catch (e: Exception) {

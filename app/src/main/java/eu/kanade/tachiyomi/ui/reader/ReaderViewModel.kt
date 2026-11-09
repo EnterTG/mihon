@@ -28,6 +28,7 @@ import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.data.download.MangaSourceLinks
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.download.remote.remoteReadingWindow
 import eu.kanade.tachiyomi.data.saver.Image
@@ -109,6 +110,7 @@ class ReaderViewModel(
     private val sourceManager: SourceManager,
     private val downloadManager: DownloadManager,
     private val downloadProvider: DownloadProvider,
+    private val sourceLinks: MangaSourceLinks,
     private val imageSaver: ImageSaver,
     val readerPreferences: ReaderPreferences,
     private val basePreferences: BasePreferences,
@@ -204,6 +206,7 @@ class ReaderViewModel(
     private var pendingProgressSave: Job? = null
 
     private var chapterToDownload: Download? = null
+    private var sourceRevision = 0L
 
     private var unfilteredChapterList: List<Chapter>? = null
 
@@ -349,13 +352,20 @@ class ReaderViewModel(
                 val manga = getManga.await(mangaId) ?: error("Requested manga of id $mangaId not found")
                 val source = sourceManager.getOrStub(manga.source)
                 incognitoMode = getIncognitoState.await(manga.source)
-                mutableState.update { it.copy(manga = manga, source = source) }
+                mutableState.update {
+                    it.copy(
+                        manga = manga,
+                        source = source,
+                        hasLinkedSources = source is HttpSource && sourceLinks.linked(manga.id).isNotEmpty(),
+                    )
+                }
                 if (chapterId == -1L) chapterId = initialChapterId
 
                 loader = ChapterLoader(
                     context,
                     downloadManager,
                     downloadProvider,
+                    sourceLinks,
                     chapterCache,
                     appScope,
                     ::canLoadAhead,
@@ -385,9 +395,25 @@ class ReaderViewModel(
         val chapterPos = chapterList.indexOf(chapter)
         val remote = downloadManager.remoteLibrary
         val bufferChapters = remoteReadingWindow(chapterList, chapterPos)
+        val selected = (state.value.source as? HttpSource)?.let {
+            sourceLinks.selectedCandidate(manga!!, chapter.chapter, it)
+        }
+        val isManualSelection = sourceLinks.preferredSourceId(chapter.chapter.id) != null
         if (remote.enabled) {
             remoteBufferJob?.cancel()
-            remote.setWindow(manga!!, bufferChapters.map { it.chapter })
+            val override = if (isManualSelection && selected != null) {
+                mapOf(
+                    chapter.chapter.id to remote.archiveKey(
+                        manga!!,
+                        chapter.chapter,
+                        selected.source,
+                        selected.chapter,
+                    ),
+                )
+            } else {
+                emptyMap()
+            }
+            remote.setWindow(manga!!, bufferChapters.map { it.chapter }, override)
         }
         loader.loadChapter(chapter)
 
@@ -409,6 +435,7 @@ class ReaderViewModel(
                 it.copy(
                     viewerChapters = newChapters,
                     bookmarked = newChapters.currChapter.chapter.bookmark,
+                    activeSourceName = selected?.source?.name ?: state.value.source?.name,
                 )
             }
         }
@@ -421,6 +448,7 @@ class ReaderViewModel(
                 bufferChapters.filter { chapterList.indexOf(it) < chapterPos }
             remoteBufferJob = viewModelScope.launch(Dispatchers.IO) {
                 for (buffered in ordered) {
+                    if (buffered == chapter && isManualSelection) continue
                     if (buffered != chapter && !canLoadAhead()) continue
                     try {
                         val stored = remote.ensure(manga, buffered.chapter, source)
@@ -809,6 +837,94 @@ class ReaderViewModel(
         loadAdjacent(prevChapter)
     }
 
+    data class ChapterSourceOption(
+        val id: Long,
+        val sourceName: String,
+        val chapterName: String,
+        val selected: Boolean,
+    )
+
+    /** Opens a list of matched editions of the currently visible chapter. */
+    fun openSourceSelectDialog() {
+        val manga = state.value.manga ?: return
+        val source = state.value.source as? HttpSource ?: return
+        val chapter = getCurrentChapter()?.chapter ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val candidates = sourceLinks.candidates(manga, chapter, source)
+                if (getCurrentChapter()?.chapter?.id != chapter.id) return@launch
+                val preferred = sourceLinks.preferredSourceId(chapter.id) ?: source.id
+                val options = candidates.map {
+                    ChapterSourceOption(it.source.id, it.source.name, it.chapter.name, it.source.id == preferred)
+                }
+                mutableState.update { it.copy(dialog = Dialog.SourceSelect(chapter.id, options)) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutableState.update { it.copy(dialog = Dialog.SourceError(e.message ?: "Could not load sources")) }
+            }
+        }
+    }
+
+    /** Recreate only this chapter's pages. The main chapter ID, bookmark and reading progress stay intact. */
+    fun switchChapterSource(sourceId: Long) {
+        val dialog = state.value.dialog as? Dialog.SourceSelect ?: return
+        val active = getCurrentChapter() ?: return
+        if (active.chapter.id != dialog.chapterId || dialog.options.none { it.id == sourceId }) return
+        closeDialog()
+        val manga = state.value.manga ?: return
+        val primary = state.value.source as? HttpSource ?: return
+        val previous = sourceLinks.preferredSourceId(active.chapter.id)
+        val selection = sourceId
+        if (selection == previous) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            mutableState.update { it.copy(isLoadingAdjacentChapter = true) }
+            try {
+                if (getCurrentChapter() !== active) return@launch
+                withContext(Dispatchers.Main) { saveChapterProgress() }
+                sourceLinks.selectSource(active.chapter.id, selection)
+                val index = chapterList.indexOfFirst { it === active }
+                check(index >= 0) { "The chapter is no longer active" }
+                val replacement = ReaderChapter(active.chapter, ++sourceRevision).apply {
+                    requestedPage = active.requestedPage
+                }
+                chapterList = chapterList.toMutableList().apply { set(index, replacement) }
+                try {
+                    loadChapter(checkNotNull(loader), replacement)
+                } catch (e: Throwable) {
+                    replacement.pageLoader?.recycle()
+                    chapterList = chapterList.toMutableList().apply { set(index, active) }
+                    if (downloadManager.remoteLibrary.enabled) {
+                        val window = remoteReadingWindow(chapterList, index).map { it.chapter }
+                        val priorSource = sourceLinks.candidates(manga, active.chapter, primary)
+                            .firstOrNull { it.source.id == previous }
+                        val oldOverride = if (previous != null && priorSource != null) {
+                            mapOf(
+                                active.chapter.id to downloadManager.remoteLibrary.archiveKey(
+                                    manga,
+                                    active.chapter,
+                                    priorSource.source,
+                                    priorSource.chapter,
+                                ),
+                            )
+                        } else {
+                            emptyMap()
+                        }
+                        downloadManager.remoteLibrary.setWindow(manga, window, oldOverride)
+                    }
+                    throw e
+                }
+            } catch (e: Throwable) {
+                sourceLinks.selectSource(active.chapter.id, previous)
+                if (e is CancellationException) throw e
+                logcat(LogPriority.ERROR, e)
+                mutableState.update { it.copy(dialog = Dialog.SourceError(e.message ?: "Could not switch source")) }
+            } finally {
+                mutableState.update { it.copy(isLoadingAdjacentChapter = false) }
+            }
+        }
+    }
+
     /**
      * Returns the currently active chapter.
      */
@@ -1135,6 +1251,8 @@ class ReaderViewModel(
         val initError: Throwable? = null,
         val viewerChapters: ViewerChapters? = null,
         val bookmarked: Boolean = false,
+        val hasLinkedSources: Boolean = false,
+        val activeSourceName: String? = null,
         val isLoadingAdjacentChapter: Boolean = false,
         val currentPage: Int = -1,
         val dialog: Dialog? = null,
@@ -1152,6 +1270,8 @@ class ReaderViewModel(
         data object ReadingModeSelect : Dialog
         data object OrientationModeSelect : Dialog
         data class PageActions(val page: ReaderPage) : Dialog
+        data class SourceSelect(val chapterId: Long, val options: List<ChapterSourceOption>) : Dialog
+        data class SourceError(val message: String) : Dialog
     }
 
     sealed interface Event {
