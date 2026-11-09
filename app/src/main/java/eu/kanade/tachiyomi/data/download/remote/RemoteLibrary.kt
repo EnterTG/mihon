@@ -142,11 +142,11 @@ class RemoteLibrary(
         if (!enabled) return@withContext
         val event = RemoteHistoryEvent(
             eventId = UUID.randomUUID().toString(),
-            sourceId = manga.source.toString(),
+            sourceId = (source?.id ?: manga.source).toString(),
             mangaUrl = manga.url,
             mangaTitle = manga.title,
-            chapterUrl = chapter.url,
-            chapterName = chapter.name,
+            chapterUrl = originChapter.url,
+            chapterName = originChapter.name,
             lastRead = lastRead,
             readDuration = readDuration.coerceAtLeast(0),
             lastPageRead = chapter.lastPageRead,
@@ -184,6 +184,10 @@ class RemoteLibrary(
 
     fun key(manga: Manga, chapter: Chapter): String =
         "${manga.source}\n${manga.url}\n${chapter.url}".encodeUtf8().sha256().hex()
+
+    /** The NAS requires SHA-256(sourceId, mangaUrl, chapterUrl). Mirrors get their own archive. */
+    fun archiveKey(manga: Manga, chapter: Chapter, source: HttpSource?, originChapter: Chapter = chapter): String =
+        "${source?.id ?: manga.source}\n${manga.url}\n${originChapter.url}".encodeUtf8().sha256().hex()
 
     fun contains(sourceId: Long, chapterUrl: String): Boolean =
         entries().any { it.sourceId == sourceId.toString() && it.chapterUrl == chapterUrl }
@@ -249,7 +253,7 @@ class RemoteLibrary(
         originChapter: Chapter = chapter,
     ): RemoteChapter = withContext(Dispatchers.IO) {
         indexReady.await()
-        val key = key(manga, chapter)
+        val key = archiveKey(manga, chapter, source, originChapter)
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         // The catalog can be stale, e.g. a second device has downloaded this chapter.
         refresh()
@@ -323,8 +327,12 @@ class RemoteLibrary(
     }
 
     /** Called only when the active chapter changes, never by a speculative page loader. */
-    suspend fun setWindow(manga: Manga, chapters: List<Chapter>) = withContext(Dispatchers.IO) {
-        buffer.setWindow(chapters.map { "$namespace/${key(manga, it)}" }.toSet())
+    suspend fun setWindow(
+        manga: Manga,
+        chapters: List<Chapter>,
+        chapterKeyOverrides: Map<Long, String> = emptyMap(),
+    ) = withContext(Dispatchers.IO) {
+        buffer.setWindow(chapters.map { "$namespace/${chapterKeyOverrides[it.id] ?: key(manga, it)}" }.toSet())
     }
 
     /** Files are written atomically and only inside the latest window, including after cancellation. */
