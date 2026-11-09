@@ -43,6 +43,8 @@ jobs:
   build:
     name: Build & Test App
     runs-on: 'ubuntu-26.04'
+    permissions:
+      contents: write # required to publish the fork's preview release
 
     steps:
       - name: Checkout
@@ -98,3 +100,25 @@ jobs:
         with:
           name: mapping-${{ github.sha }}
           path: app/build/outputs/mapping/release
+
+      - name: Publish Yomira preview APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v0.21.3-yomira-preview.${GITHUB_RUN_NUMBER}"
+          mkdir -p release
+          cp app/build/outputs/apk/release/app-universal-release.apk "release/yomira-${tag}.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "release/yomira-arm64-v8a-${tag}.apk"
+          cat > release-notes.md <<'EOF'
+          Testowe wydanie Yomira (fork Mihon) z obsługą biblioteki TrueNAS, historii na serwerze i wielu źródeł rozdziałów.
+
+          **Do instalacji na telefonie wybierz `yomira-v0.21.3-yomira-preview.NUMER.apk` (uniwersalny APK)**. Dla urządzeń ARM64 dostępna jest też mniejsza wersja `arm64-v8a`.
+
+          **Uwaga o aktualizacjach:** ten build CI jest podpisywany tymczasowym kluczem debug Androida. Kolejne buildy mogą mieć inny podpis, więc aktualizacja nad już zainstalowaną Yomira może się nie udać. Zrób kopię danych aplikacji przed odinstalowaniem i przeinstalowaniem. Trwałe aktualizacje wymagają skonfigurowania stałego, prywatnego klucza podpisu w sekretach GitHub Actions.
+
+          Pakiet Androida: `app.yomira` — instaluje się niezależnie od Mihon.
+          EOF
+          gh release create "$tag" release/*.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Yomira Preview ${GITHUB_RUN_NUMBER}" --notes-file release-notes.md --prerelease
