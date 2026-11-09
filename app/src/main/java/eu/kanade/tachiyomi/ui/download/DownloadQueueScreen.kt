@@ -55,6 +55,7 @@ object DownloadQueueScreen : Screen() {
         val navigator = LocalNavigator.currentOrThrow
         val viewModel = metroViewModel<DownloadQueueViewModel>()
         val downloadList by viewModel.state.collectAsStateWithLifecycle()
+        val remoteMode by viewModel.remoteMode.collectAsStateWithLifecycle()
         val downloadCount by remember {
             derivedStateOf { downloadList.sumOf { it.downloads.size } }
         }
@@ -108,7 +109,7 @@ object DownloadQueueScreen : Screen() {
                     },
                     navigateUp = navigator::pop,
                     actions = {
-                        if (downloadList.isNotEmpty()) {
+                        if (downloadList.isNotEmpty() && !remoteMode) {
                             var sortExpanded by remember { mutableStateOf(false) }
                             val onDismissRequest = { sortExpanded = false }
                             DropdownMenu(
@@ -186,7 +187,8 @@ object DownloadQueueScreen : Screen() {
                 )
             },
             floatingActionButton = {
-                val isRunning by viewModel.isDownloaderRunning.collectAsStateWithLifecycle()
+                if (!remoteMode) {
+                    val isRunning by viewModel.isDownloaderRunning.collectAsStateWithLifecycle()
                 SmallExtendedFloatingActionButton(
                     text = {
                         val id = if (isRunning) {
@@ -217,6 +219,7 @@ object DownloadQueueScreen : Screen() {
                         alignment = Alignment.BottomEnd,
                     ),
                 )
+                }
             },
         ) { contentPadding ->
             if (downloadList.isEmpty()) {
@@ -227,17 +230,21 @@ object DownloadQueueScreen : Screen() {
                 return@Scaffold
             }
 
-            DownloadQueueList(
-                sections = downloadList,
-                lazyListState = rememberLazyListState(),
-                contentPadding = contentPadding,
-                onReorder = viewModel::reorder,
-                onMove = viewModel::move,
-                onMoveSeries = viewModel::moveSeries,
-                onCancel = { viewModel.cancel(listOf(it)) },
-                onCancelSeries = viewModel::cancelSeries,
-                modifier = Modifier.nestedScroll(nestedScrollConnection),
-            )
+            if (remoteMode) {
+                RemoteDownloadStatusList(downloadList, contentPadding)
+            } else {
+                DownloadQueueList(
+                    sections = downloadList,
+                    lazyListState = rememberLazyListState(),
+                    contentPadding = contentPadding,
+                    onReorder = viewModel::reorder,
+                    onMove = viewModel::move,
+                    onMoveSeries = viewModel::moveSeries,
+                    onCancel = { viewModel.cancel(listOf(it)) },
+                    onCancelSeries = viewModel::cancelSeries,
+                    modifier = Modifier.nestedScroll(nestedScrollConnection),
+                )
+            }
         }
     }
 }
