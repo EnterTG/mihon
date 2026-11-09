@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.data.download
 
 import android.content.Context
-
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -40,8 +39,11 @@ class MangaSourceLinks(
 
     fun selectSource(chapterId: Long, sourceId: Long?) {
         selections.edit().apply {
-            if (sourceId == null) remove("chapter-$chapterId")
-            else putLong("chapter-$chapterId", sourceId)
+            if (sourceId == null) {
+                remove("chapter-$chapterId")
+            } else {
+                putLong("chapter-$chapterId", sourceId)
+            }
         }.apply()
     }
 
