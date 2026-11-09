@@ -530,7 +530,8 @@ class Downloader(
             // If the page list already exists, start from the file
             val pageList = download.pages ?: run {
                 // Otherwise, pull page list from network and add them to download object
-                val pages = withTimeout(2.minutes) { download.activeSource.getPageList(download.activeChapter.toSChapter()) }
+                val pages =
+                    withTimeout(2.minutes) { download.activeSource.getPageList(download.activeChapter.toSChapter()) }
 
                 if (pages.isEmpty()) {
                     throw Exception(context.stringResource(MR.strings.page_list_empty_error))
