@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.data.download
 
+import android.content.Context
+
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -20,12 +22,33 @@ import kotlin.math.abs
 @Inject
 @SingleIn(AppScope::class)
 class MangaSourceLinks(
+    private val context: Context,
     private val links: MangaSourceLinkRepository,
     private val mangaRepository: MangaRepository,
     private val mangaWithChapters: GetMangaWithChapters,
     private val sourceManager: SourceManager,
 ) {
     data class Candidate(val source: HttpSource, val chapter: Chapter)
+
+    // A per-chapter choice survives leaving the reader without changing the canonical chapter's history.
+    private val selections by lazy {
+        context.getSharedPreferences("reader_chapter_source_selection", Context.MODE_PRIVATE)
+    }
+
+    fun preferredSourceId(chapterId: Long): Long? =
+        selections.getLong("chapter-$chapterId", -1L).takeIf { it != -1L }
+
+    fun selectSource(chapterId: Long, sourceId: Long?) {
+        selections.edit().apply {
+            if (sourceId == null) remove("chapter-$chapterId")
+            else putLong("chapter-$chapterId", sourceId)
+        }.apply()
+    }
+
+    suspend fun selectedCandidate(manga: Manga, chapter: Chapter, primary: HttpSource): Candidate {
+        val candidates = candidates(manga, chapter, primary)
+        return candidates.firstOrNull { it.source.id == preferredSourceId(chapter.id) } ?: candidates.first()
+    }
 
     suspend fun linked(primaryId: Long): List<Manga> =
         links.linkedIds(primaryId).mapNotNull { id ->
