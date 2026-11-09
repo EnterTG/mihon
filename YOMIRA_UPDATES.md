@@ -26,7 +26,7 @@ musi być podpisane **tym samym prywatnym kluczem**.
    - `YOMIRA_SIGNING_PASSWORD`: hasło keystore i klucza.
 
    Przykładowe kodowanie: `base64 -w 0 yomira-release-keystore.p12` (Linux);
-   na macOS: `base64 < yomira-release-keystore.p12 | tr -d '\\n'`.
+   na macOS: `base64 < yomira-release-keystore.p12 | tr -d '\n'`.
 
 3. Uruchom **Actions → Build & Test → Run workflow** na `main`. Po pomyślnych
    testach workflow publikuje podpisany APK uniwersalny i ARM64 na
