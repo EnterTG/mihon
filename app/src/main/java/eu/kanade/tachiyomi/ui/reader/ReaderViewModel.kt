@@ -402,7 +402,14 @@ class ReaderViewModel(
         if (remote.enabled) {
             remoteBufferJob?.cancel()
             val override = if (isManualSelection && selected != null) {
-                mapOf(chapter.chapter.id to remote.archiveKey(manga!!, chapter.chapter, selected.source, selected.chapter))
+                mapOf(
+                    chapter.chapter.id to remote.archiveKey(
+                        manga!!,
+                        chapter.chapter,
+                        selected.source,
+                        selected.chapter,
+                    ),
+                )
             } else {
                 emptyMap()
             }
