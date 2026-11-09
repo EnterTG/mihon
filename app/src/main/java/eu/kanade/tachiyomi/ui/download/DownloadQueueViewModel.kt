@@ -9,6 +9,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.model.Download
+import tachiyomi.domain.download.service.DownloadPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ import kotlin.time.Duration.Companion.seconds
 @ContributesIntoMap(AppScope::class)
 class DownloadQueueViewModel(
     private val downloadManager: DownloadManager,
+    private val downloadPreferences: DownloadPreferences,
 ) : ViewModel() {
 
     val state: StateFlow<List<DownloadQueueSection>> = downloadManager.queueState
@@ -34,6 +36,13 @@ class DownloadQueueViewModel(
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), emptyList())
+
+    val remoteMode = downloadPreferences.remoteLibraryEnabled.changes()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5.seconds),
+            downloadPreferences.remoteLibraryEnabled.get(),
+        )
 
     val isDownloaderRunning = downloadManager.isDownloaderRunning
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), false)
