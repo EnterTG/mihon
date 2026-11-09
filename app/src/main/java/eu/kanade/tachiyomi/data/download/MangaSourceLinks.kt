@@ -81,5 +81,6 @@ internal fun chaptersMatch(a: Chapter, b: Chapter): Boolean {
     }
     if (a.isRecognizedNumber != b.isRecognizedNumber) return false
     fun normalize(value: String) = value.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
-    return normalize(a.name).takeIf { it.isNotEmpty() } == normalize(b.name).takeIf { it.isNotEmpty() }
+    val name = normalize(a.name)
+    return name.isNotEmpty() && name == normalize(b.name)
 }
