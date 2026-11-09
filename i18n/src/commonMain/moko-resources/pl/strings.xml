@@ -821,10 +821,10 @@
     <string name="remote_library_title">Biblioteka sieciowa (TrueNAS)</string>
     <string name="remote_library_url">Adres serwera</string>
     <string name="remote_library_token">Token serwera (co najmniej 32 znaki)</string>
-    <string name="remote_library_enable">Zapisuj pobierane rozdziały na serwerze</string>
+    <string name="remote_library_enable">Zapisuj rozdziały i historię czytania na serwerze</string>
     <string name="remote_library_refresh">Sprawdź połączenie i odśwież bibliotekę</string>
     <string name="remote_library_connecting">Łączenie…</string>
     <string name="remote_library_connected">Połączono; odświeżono bibliotekę serwera</string>
     <string name="remote_library_connection_error">Błąd połączenia. Sprawdź adres serwera, token i sieć.</string>
-    <string name="remote_library_summary">Wymaga usługi towarzyszącej Yomira na NAS. Obrazy pobiera serwer. Urządzenie buforuje tylko bieżący rozdział, jeden poprzedni i dwa następne; pobieranie z wyprzedzeniem uwzględnia ustawienie Wi-Fi czytnika. Istniejące lokalne pliki pozostają zachowane. Automatyczne usuwanie po przeczytaniu jest wyłączone dla archiwum na serwerze. Używaj HTTPS lub zaufanej sieci prywatnej.</string>
+    <string name="remote_library_summary">Wymaga usługi towarzyszącej Yomira na NAS. Obrazy pobiera serwer. Urządzenie buforuje tylko bieżący rozdział, jeden poprzedni i dwa następne; pobieranie z wyprzedzeniem uwzględnia ustawienie Wi-Fi czytnika. Istniejące lokalne pliki pozostają zachowane. Automatyczne usuwanie po przeczytaniu jest wyłączone dla archiwum na serwerze. Używaj HTTPS lub zaufanej sieci prywatnej. Nowe sesje czytania, czas i ostatnia strona są również zapisywane na serwerze, poza trybem incognito. Historia zapisana offline zostanie wysłana po odzyskaniu połączenia.</string>
 </resources>

@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import mihon.core.metro.AppCoroutineScope
@@ -37,6 +38,7 @@ import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.manga.model.Manga
 import java.io.File
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /** Image downloads go directly from the origin to the NAS; only this reader window reaches Android. */
@@ -62,6 +64,7 @@ class RemoteLibrary(
     private val indexReady = CompletableDeferred<Unit>()
     private val catalogLock = Mutex()
     private val events = Channel<Unit>(Channel.CONFLATED)
+    private val historyWake = Channel<Unit>(Channel.CONFLATED)
     val changes = events.receiveAsFlow()
     private val root = File(context.cacheDir, "remote_library")
     private val buffer = RemoteChapterBuffer(root)
@@ -87,7 +90,21 @@ class RemoteLibrary(
                 preferences.remoteLibraryEnabled.changes(),
                 preferences.remoteLibraryUrl.changes(),
                 preferences.remoteLibraryToken.changes(),
-            ) { _, _, _ -> Unit }.collect { events.trySend(Unit) }
+            ) { _, _, _ -> Unit }.collect {
+                events.trySend(Unit)
+                historyWake.trySend(Unit)
+            }
+        }
+        scope.launch(Dispatchers.IO) {
+            while (true) {
+                try {
+                    flushHistory()
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    // The durable outbox survives outages, old servers and process restarts.
+                }
+                withTimeoutOrNull(60_000L) { historyWake.receive() }
+            }
         }
         scope.launch(Dispatchers.IO) {
             catalogLock.withLock {
@@ -115,6 +132,56 @@ class RemoteLibrary(
     private fun entries(): List<RemoteChapter> =
         catalog.takeIf { enabled && it.namespace == namespace }?.chapters.orEmpty()
 
+    /** A session is queued before networking; an acknowledgement lost in transit cannot double its duration. */
+    suspend fun recordHistory(
+        manga: Manga,
+        chapter: Chapter,
+        lastRead: Long,
+        readDuration: Long,
+    ) = withContext(Dispatchers.IO) {
+        if (!enabled) return@withContext
+        val event = RemoteHistoryEvent(
+            eventId = UUID.randomUUID().toString(),
+            sourceId = manga.source.toString(),
+            mangaUrl = manga.url,
+            mangaTitle = manga.title,
+            chapterUrl = chapter.url,
+            chapterName = chapter.name,
+            lastRead = lastRead,
+            readDuration = readDuration.coerceAtLeast(0),
+            lastPageRead = chapter.lastPageRead,
+            read = chapter.read,
+        )
+        val directory = File(context.noBackupFilesDir, "remote_history/$namespace")
+        check(directory.mkdirs() || directory.isDirectory) { "Cannot create history outbox" }
+        AtomicFile(File(directory, "${event.eventId}.json"))
+            .writeBytes(json.encodeToString(event).toByteArray())
+        historyWake.trySend(Unit)
+    }
+
+    private suspend fun flushHistory() {
+        if (!enabled) return
+        val serverOrigin = origin
+        val serverToken = preferences.remoteLibraryToken.get().trim()
+        val expectedNamespace = (serverOrigin + "\n" + serverToken).encodeUtf8().sha256().hex()
+        val directory = File(context.noBackupFilesDir, "remote_history/$expectedNamespace")
+        val files = directory.listFiles()?.filter { it.extension == "json" }.orEmpty()
+        for (file in files) {
+            if (!enabled || namespace != expectedNamespace) return
+            // Build the target before suspension. Never send an old server's outbox to a new server/token.
+            val target = request("history", serverOrigin, serverToken)
+            val event = json.decodeFromString<RemoteHistoryEvent>(
+                AtomicFile(file).openRead().bufferedReader().use { it.readText() },
+            )
+            val body = json.encodeToString(event).toRequestBody("application/json".toMediaType())
+            val ack = pageClient.newCall(target.post(body).build()).awaitSuccess().use {
+                json.decodeFromString<RemoteHistoryAck>(it.body.string())
+            }
+            check(ack.eventId == event.eventId) { "Invalid history acknowledgement" }
+            AtomicFile(file).delete()
+        }
+    }
+
     fun key(manga: Manga, chapter: Chapter): String =
         "${manga.source}\n${manga.url}\n${chapter.url}".encodeUtf8().sha256().hex()
 
@@ -132,20 +199,24 @@ class RemoteLibrary(
 
     fun count(): Int = entries().size
 
-    private fun request(path: String): Request.Builder {
-        val url = origin.toHttpUrl()
+    private fun request(
+        path: String,
+        serverOrigin: String = origin,
+        serverToken: String = preferences.remoteLibraryToken.get().trim(),
+    ): Request.Builder {
+        val url = serverOrigin.toHttpUrl()
         require(
             url.username.isEmpty() && url.password.isEmpty() && url.encodedPath == "/" &&
                 url.query == null && url.fragment == null,
         ) {
             "Enter a server origin such as https://mihon.example.com (without a path or credentials)"
         }
-        require(preferences.remoteLibraryToken.get().trim().length >= 32) {
+        require(serverToken.length >= 32) {
             "Server token must contain at least 32 characters"
         }
         return Request.Builder()
             .url(url.newBuilder().encodedPath("/v1/$path").build())
-            .header("Authorization", "Bearer ${preferences.remoteLibraryToken.get().trim()}")
+            .header("Authorization", "Bearer $serverToken")
             .header("Cache-Control", "no-store")
     }
 
@@ -297,4 +368,21 @@ data class RemoteChapter(
     val chapterUrl: String,
     val chapterName: String,
     val pageCount: Int,
+)
+
+@Serializable
+private data class RemoteHistoryAck(val eventId: String)
+
+@Serializable
+private data class RemoteHistoryEvent(
+    val eventId: String,
+    val sourceId: String,
+    val mangaUrl: String,
+    val mangaTitle: String,
+    val chapterUrl: String,
+    val chapterName: String,
+    val lastRead: Long,
+    val readDuration: Long,
+    val lastPageRead: Int,
+    val read: Boolean,
 )

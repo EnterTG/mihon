@@ -2,7 +2,7 @@
 
 Yomira zapisuje pobierane obrazy bezpośrednio na Twoim serwerze. Android przekazuje usłudze listę adresów obrazów i nagłówki źródła; **obrazy pobiera serwer**, a aplikacja odbiera je dopiero do czytania. Wybranie „Pobierz” w aplikacji archiwizuje cały wybrany rozdział na NAS, bez pobierania jego obrazów na telefon.
 
-Na telefonie pozostaje baza biblioteki (tytuły, ulubione, historia i postęp czytania), okładki, rozszerzenia, indeks zawartości serwera oraz tymczasowe obrazy. To przechowywanie treści na serwerze; nie jest to synchronizacja całej bazy aplikacji między urządzeniami. Dotychczasowe lokalne pliki nie są przenoszone ani kasowane.
+Na telefonie pozostaje baza biblioteki (tytuły, ulubione, historia i postęp czytania), okładki, rozszerzenia, indeks zawartości serwera oraz tymczasowe obrazy. Przy włączonej bibliotece sieciowej nowe sesje czytania są dodatkowo zapisywane na serwerze — szczegóły poniżej. Nie jest to synchronizacja całej bazy aplikacji między urządzeniami. Dotychczasowe lokalne pliki nie są przenoszone ani kasowane.
 
 ## Co przygotować na TrueNAS
 
@@ -103,6 +103,25 @@ Nazwy `MIHON_DATA`, `MIHON_TOKEN`, `mihon-library` oraz ścieżki datasetów poz
 5. Dodaj tytuł do biblioteki zwykłym sposobem i wybierz rozdziały do pobrania. Status pobrania i liczniki w tym trybie dotyczą archiwum na NAS.
 
 Po zmianach z innego urządzenia odśwież katalog przyciskiem w ustawieniach. Serwer identyfikuje treść przez identyfikator źródła, adres mangi i adres rozdziału; nazwy plików nie zależą od tytułów ani lokalnych identyfikatorów bazy Androida. Kopiowanie archiwum nie dodaje automatycznie mang do ulubionych na drugim urządzeniu.
+
+## Historia czytania na serwerze
+
+Gdy biblioteka sieciowa jest włączona, aplikacja wysyła historię przy zapisie sesji czytania (np. opuszczeniu czytnika, przejściu do innego rozdziału lub przejściu aplikacji w tło). Zapis obejmuje źródło, adres i tytuł mangi, adres i nazwę rozdziału, czas ostatniego czytania, czas spędzony na czytaniu, ostatnią stronę (indeks od zera) oraz oznaczenie przeczytania. Dotyczy także rozdziałów, których obrazy nie są jeszcze zarchiwizowane na NAS. Tryb incognito nie tworzy wpisów.
+
+Przed wysłaniem nowy wpis trafia do trwałej kolejki w prywatnym katalogu aplikacji, poza cache i automatyczną kopią Androida. Brak sieci nie blokuje czytnika. Aplikacja ponawia wysyłkę co minutę, dopóki jej proces działa, oraz po ponownym uruchomieniu obsługi biblioteki sieciowej. Zamknięcie procesu nie usuwa kolejki. Wyłączenie biblioteki sieciowej wstrzymuje wysyłanie i dodawanie nowych wpisów. Wpisy oczekujące należą do konkretnego adresu serwera i tokenu; nie zostaną wysłane do innej konfiguracji. Ponowne użycie poprzedniego adresu i tokenu wznawia ich wysyłanie.
+
+Serwer zapisuje wpisy transakcyjnie w `/data/history.sqlite3`, w tym samym datasecie co archiwum. Każda sesja ma unikatowy identyfikator: ponowienie po utracie odpowiedzi nie zwiększa drugi raz czasu czytania. Dla danego rozdziału serwer sumuje czas sesji i wybiera ostatnią stronę według czasu ostatniego czytania, więc opóźnione starsze wpisy nie cofają postępu. Urządzenia powinny mieć poprawnie ustawiony zegar. Wspólny token oznacza wspólną historię; nie ma oddzielnych kont użytkowników.
+
+Po aktualizacji kodu serwera wykonaj `docker compose up -d --build` i zainstaluj nowy APK. Stary serwer nie obsługuje historii — wpisy pozostaną w kolejce do jego aktualizacji. Dotychczasowa historia telefonu nie jest automatycznie eksportowana. Ta wersja zapisuje nowe sesje na NAS; nie przywraca automatycznie historii ani postępu z NAS do bazy telefonu. Lokalna historia nadal działa zwykłym sposobem.
+
+API wymaga tego samego nagłówka `Authorization: Bearer TWOJ_TOKEN` co archiwum:
+
+- `POST /v1/history` zapisuje sesję i zwraca potwierdzenie `eventId`.
+- `GET /v1/history` zwraca historię rozdziałów z łącznym czasem, najnowsze najpierw.
+- `DELETE /v1/history/KEY` usuwa historię rozdziału; `KEY` jest zwracany przez GET i nie zależy od identyfikatorów bazy telefonu.
+- `DELETE /v1/history` usuwa całą historię na serwerze.
+
+Usunięcie obrazów rozdziału nie usuwa historii. Usuwanie historii w interfejsie telefonu dotyczy lokalnej bazy; historię NAS usuwa się powyższym API. Przed usunięciem historii NAS opróżnij kolejki urządzeń, aby oczekujące wpisy nie dodały jej ponownie. Snapshot datasetu obejmuje archiwum i bazę historii; wykonuj go przy zatrzymanym kontenerze lub użyj mechanizmu kopii SQLite dla spójnej kopii pliku bazy podczas pracy.
 
 ## Bufor: poprzedni + bieżący + dwa następne
 
