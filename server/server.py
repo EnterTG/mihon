@@ -9,11 +9,13 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import sqlite3
 import ssl
 import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urljoin, urlsplit
+from contextlib import closing
 
 MAX_PAGE = 64 * 1024 * 1024
 MAX_CHAPTER = 2 * 1024 * 1024 * 1024
@@ -163,6 +165,54 @@ class Library:
         with self.lock:
             shutil.rmtree(self.root / key, ignore_errors=True)
 
+    def history_database(self):
+        # Separate from image downloads: reading must not wait for a slow origin.
+        db = sqlite3.connect(self.root / "history.sqlite3", timeout=30)
+        db.execute("""CREATE TABLE IF NOT EXISTS history_events (
+            event_id TEXT PRIMARY KEY, chapter_key TEXT NOT NULL,
+            last_read INTEGER NOT NULL, duration INTEGER NOT NULL, payload TEXT NOT NULL
+        )""")
+        db.execute("CREATE INDEX IF NOT EXISTS history_chapter ON history_events(chapter_key, last_read)")
+        return db
+
+    def store_history(self, payload):
+        fields = ("sourceId", "mangaUrl", "mangaTitle", "chapterUrl", "chapterName")
+        if any(not isinstance(payload.get(k), str) or not 0 < len(payload[k]) <= 8192 for k in fields):
+            raise ValueError("Invalid history metadata")
+        if not re.fullmatch(r"[a-f0-9-]{36}", payload.get("eventId", "")):
+            raise ValueError("Invalid history event ID")
+        for name, limit in (("lastRead", 2**53 - 1), ("readDuration", 2**53 - 1), ("lastPageRead", 2**31 - 1)):
+            if type(payload.get(name)) is not int or not 0 <= payload[name] <= limit:
+                raise ValueError("Invalid history number")
+        if type(payload.get("read")) is not bool:
+            raise ValueError("Invalid read flag")
+        key = chapter_key(payload)
+        value = {k: payload[k] for k in (*fields, "eventId", "lastRead", "readDuration", "lastPageRead", "read")}
+        value["key"] = key
+        with closing(self.history_database()) as db, db:
+            db.execute("INSERT OR IGNORE INTO history_events VALUES (?, ?, ?, ?, ?)",
+                       (value["eventId"], key, value["lastRead"], value["readDuration"], json.dumps(value, ensure_ascii=False)))
+            existing = db.execute("SELECT payload FROM history_events WHERE event_id = ?", (value["eventId"],)).fetchone()
+            if json.loads(existing[0]) != value:
+                raise ValueError("History event ID already used")
+        return {"eventId": value["eventId"]}
+
+    def history(self):
+        with closing(self.history_database()) as db, db:
+            rows = db.execute("""SELECT payload, total FROM (
+                SELECT payload, SUM(duration) OVER (PARTITION BY chapter_key) AS total,
+                    ROW_NUMBER() OVER (PARTITION BY chapter_key ORDER BY last_read DESC, event_id DESC) AS position
+                FROM history_events
+            ) WHERE position = 1 ORDER BY json_extract(payload, '$.lastRead') DESC""").fetchall()
+        return [{**json.loads(payload), "readDuration": total} for payload, total in rows]
+
+    def delete_history(self, key=None):
+        with closing(self.history_database()) as db, db:
+            if key is None:
+                db.execute("DELETE FROM history_events")
+            else:
+                db.execute("DELETE FROM history_events WHERE chapter_key = ?", (key,))
+
 
 def make_server(address, library, token):
     if len(token) < 32:
@@ -201,6 +251,8 @@ def make_server(address, library, token):
                 parts = self.path.split("/")
                 if self.path == "/v1/chapters":
                     self.reply(200, library.catalog())
+                elif self.path == "/v1/history":
+                    self.reply(200, library.history())
                 elif len(parts) == 4 and parts[1:3] == ["v1", "chapters"]:
                     self.reply(200, library.metadata(parts[3]))
                 elif len(parts) == 6 and parts[1:3] == ["v1", "chapters"] and parts[4] == "pages":
@@ -221,13 +273,15 @@ def make_server(address, library, token):
                 self.reply(404, {"error": "Chapter or page not found"})
             except (ValueError, KeyError):
                 self.reply(400, {"error": "Invalid request"})
+            except sqlite3.Error:
+                self.reply(503, {"error": "History storage unavailable; retry later"})
 
         def do_POST(self):
             if not self.authorized():
                 return
             try:
                 parts = self.path.split("/")
-                if len(parts) != 4 or parts[1:3] != ["v1", "chapters"]:
+                if self.path != "/v1/history" and (len(parts) != 4 or parts[1:3] != ["v1", "chapters"]):
                     self.reply(404, {"error": "Not found"})
                     return
                 size = int(self.headers.get("Content-Length", "0"))
@@ -238,17 +292,28 @@ def make_server(address, library, token):
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError()
-                self.reply(200, library.store(parts[3], payload))
+                if self.path == "/v1/history":
+                    self.reply(200, library.store_history(payload))
+                else:
+                    self.reply(200, library.store(parts[3], payload))
             except (ValueError, KeyError, TypeError):
                 self.reply(400, {"error": "Invalid manifest or unsupported image origin"})
             except (OSError, http.client.HTTPException):
                 self.reply(502, {"error": "Server could not download the chapter; retry later"})
+            except sqlite3.Error:
+                self.reply(503, {"error": "History storage unavailable; retry later"})
 
         def do_DELETE(self):
             if not self.authorized():
                 return
             parts = self.path.split("/")
-            if len(parts) == 4 and parts[1:3] == ["v1", "chapters"] and KEY.fullmatch(parts[3]):
+            if self.path == "/v1/history":
+                library.delete_history()
+                self.reply(200, {})
+            elif len(parts) == 4 and parts[1:3] == ["v1", "history"] and KEY.fullmatch(parts[3]):
+                library.delete_history(parts[3])
+                self.reply(200, {})
+            elif len(parts) == 4 and parts[1:3] == ["v1", "chapters"] and KEY.fullmatch(parts[3]):
                 library.delete(parts[3])
                 self.reply(200, {})
             else:

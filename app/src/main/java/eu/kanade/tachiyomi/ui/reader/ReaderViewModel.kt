@@ -777,6 +777,19 @@ class ReaderViewModel(
             chapterReadStartTime = null
 
             upsertHistory.await(HistoryUpdate(chapterId, endTime, sessionReadDuration))
+            manga?.let { manga ->
+                try {
+                    downloadManager.remoteLibrary.recordHistory(
+                        manga = manga,
+                        chapter = readerChapter.chapter,
+                        lastRead = endTime.toEpochMilliseconds(),
+                        readDuration = sessionReadDuration,
+                    )
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    logcat(LogPriority.ERROR) { "Could not persist remote reading history outbox" }
+                }
+            }
         }
     }
 
