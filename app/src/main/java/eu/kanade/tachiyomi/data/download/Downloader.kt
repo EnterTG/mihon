@@ -347,22 +347,35 @@ class Downloader(
             }
             val firstIndex = preferredIndex.takeIf { it >= 0 }
                 ?: (download.chapter.id and Long.MAX_VALUE).rem(candidates.size).toInt()
-            val index = (firstIndex + download.sourceAttempt.rem(candidates.size)).rem(candidates.size)
-            val chosen = candidates[index]
-            if (download.lastSourceId != null && download.lastSourceId != chosen.source.id) {
-                // Never mix partial image pages or expired URLs from different translations.
-                download.pages = null
+            // Try each matching source immediately; the existing delayed retry queue handles
+            // the case where every source fails. A single chapter never combines two editions.
+            for (offset in candidates.indices) {
+                currentCoroutineContext().ensureActive()
+                val index = (firstIndex + download.sourceAttempt.rem(candidates.size) + offset).rem(candidates.size)
+                val chosen = candidates[index]
+                if (download.lastSourceId != null && download.lastSourceId != chosen.source.id) {
+                    download.pages = null
+                }
+                download.activeSource = chosen.source
+                download.activeChapter = chosen.chapter
+                download.lastSourceId = chosen.source.id
+                if (offset > 0) download.status = Download.State.QUEUE
+
+                try {
+                    withTimeout(35.minutes) { downloadChapter(download, slots, pagesStarted) }
+                } catch (e: Throwable) {
+                    currentCoroutineContext().ensureActive()
+                    logcat(LogPriority.ERROR, e)
+                    download.status = Download.State.ERROR
+                    notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
+                }
+                if (download.status == Download.State.DOWNLOADED) break
             }
-            download.activeSource = chosen.source
-            download.activeChapter = chosen.chapter
-            download.lastSourceId = chosen.source.id
 
-            // Bound stalled extensions and NAS requests too, while preserving partial files for the next attempt.
-            withTimeout(35.minutes) { downloadChapter(download, slots, pagesStarted) }
-
-            // Remove successful download from queue
             if (download.status == Download.State.DOWNLOADED) {
                 removeFromQueue(download)
+            } else {
+                download.status = Download.State.ERROR
             }
             stopIfFinished(owner)
         } catch (e: Throwable) {
