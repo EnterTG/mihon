@@ -40,6 +40,7 @@ import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.download.MangaSourceLinks
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
@@ -99,6 +100,7 @@ import tachiyomi.domain.manga.interactor.GetMangaWithChapters
 import tachiyomi.domain.manga.interactor.SetMangaChapterFlags
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaWithChapterCount
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.GetTracks
@@ -137,9 +139,54 @@ class MangaViewModel(
     private val filterChaptersForDownload: FilterChaptersForDownload,
     private val updateMangaFromRemote: UpdateMangaFromRemote,
     private val sourceManager: SourceManager,
+    private val mangaSourceLinks: MangaSourceLinks,
+    private val mangaRepository: MangaRepository,
     private val refreshTracks: RefreshTracks,
     private val coverCache: CoverCache,
 ) : ViewModel() {
+
+    data class LinkOption(
+        val id: Long,
+        val title: String,
+        val sourceName: String,
+        val linked: Boolean,
+    )
+
+    val linkedSources = MutableStateFlow<List<LinkOption>>(emptyList())
+    val sourceLinkCandidates = MutableStateFlow<List<LinkOption>>(emptyList())
+    val sourceLinkError = MutableStateFlow<String?>(null)
+
+    fun refreshLinkedSources() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val current = mangaRepository.getMangaById(mangaId)
+                val linkedIds = mangaSourceLinks.linked(mangaId).mapTo(HashSet()) { it.id }
+                val books = mangaRepository.getFavorites().filter {
+                    it.id != mangaId && it.source != current.source
+                }
+                val options = books.map {
+                    LinkOption(it.id, it.title, sourceManager.getOrStub(it.source).name, it.id in linkedIds)
+                }.sortedWith(compareByDescending<LinkOption> { it.linked }.thenBy { it.title.lowercase() })
+                linkedSources.value = options.filter { it.linked }
+                sourceLinkCandidates.value = options
+                sourceLinkError.value = null
+            } catch (e: Exception) {
+                sourceLinkError.value = e.message ?: "Unable to load linked sources"
+            }
+        }
+    }
+
+    fun toggleSourceLink(option: LinkOption) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (option.linked) mangaSourceLinks.unlink(mangaId, option.id)
+                else mangaSourceLinks.link(mangaId, option.id)
+                refreshLinkedSources()
+            } catch (e: Exception) {
+                sourceLinkError.value = e.message ?: "Unable to change linked sources"
+            }
+        }
+    }
 
     private val subscriberGate = SubscriberGate()
 
