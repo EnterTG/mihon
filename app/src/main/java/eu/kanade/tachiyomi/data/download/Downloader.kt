@@ -342,10 +342,12 @@ class Downloader(
 
             // Each attempt uses a single source's entire chapter, rotating mirrors on failure.
             val candidates = mangaSourceLinks.candidates(download.manga, download.chapter, download.source)
-            val index = (
-                (download.chapter.id and Long.MAX_VALUE).rem(candidates.size).toInt() +
-                    download.sourceAttempt.rem(candidates.size)
-                ).rem(candidates.size)
+            val preferredIndex = candidates.indexOfFirst {
+                it.source.id == mangaSourceLinks.preferredSourceId(download.chapter.id)
+            }
+            val firstIndex = preferredIndex.takeIf { it >= 0 }
+                ?: (download.chapter.id and Long.MAX_VALUE).rem(candidates.size).toInt()
+            val index = (firstIndex + download.sourceAttempt.rem(candidates.size)).rem(candidates.size)
             val chosen = candidates[index]
             if (download.lastSourceId != null && download.lastSourceId != chosen.source.id) {
                 // Never mix partial image pages or expired URLs from different translations.
@@ -477,7 +479,6 @@ class Downloader(
                 download.status = Download.State.ERROR
                 notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
             } finally {
-                if (download.status == Download.State.ERROR) download.sourceAttempt++
                 pagesStarted.complete(Unit)
             }
             return
@@ -608,8 +609,6 @@ class Downloader(
             logcat(LogPriority.ERROR, error)
             download.status = Download.State.ERROR
             notifier.onError(error.message, download.chapter.name, download.manga.title, download.manga.id)
-        } finally {
-            if (download.status == Download.State.ERROR) download.sourceAttempt++
         }
     }
 
