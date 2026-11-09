@@ -21,6 +21,7 @@ fun ReaderTopBar(
     onOpenInWebView: (() -> Unit)?,
     onOpenInBrowser: (() -> Unit)?,
     onShare: (() -> Unit)?,
+    onSelectSource: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     AppBar(
@@ -61,6 +62,14 @@ fun ReaderTopBar(
                         add(
                             AppBar.OverflowAction(
                                 title = stringResource(MR.strings.action_open_in_browser),
+                                onClick = it,
+                            ),
+                        )
+                    }
+                    onSelectSource?.let {
+                        add(
+                            AppBar.OverflowAction(
+                                title = "Zmień źródło rozdziału",
                                 onClick = it,
                             ),
                         )
