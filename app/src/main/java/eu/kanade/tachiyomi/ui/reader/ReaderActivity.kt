@@ -311,6 +311,19 @@ class ReaderActivity : BaseActivity() {
                         },
                     )
                 }
+                is ReaderViewModel.Dialog.SourceSelect -> {
+                    ReaderSourceSelectDialog(
+                        dialog = state.dialog,
+                        onChoose = viewModel::switchChapterSource,
+                        onDismiss = onDismissRequest,
+                    )
+                }
+                is ReaderViewModel.Dialog.SourceError -> {
+                    ReaderSourceErrorDialog(
+                        message = state.dialog.message,
+                        onDismiss = onDismissRequest,
+                    )
+                }
                 is ReaderViewModel.Dialog.PageActions -> {
                     ReaderPageActionsDialog(
                         onDismissRequest = onDismissRequest,
@@ -559,6 +572,7 @@ class ReaderActivity : BaseActivity() {
 
             mangaTitle = state.manga?.title,
             chapterTitle = state.currentChapter?.chapter?.name,
+
             navigateUp = onBackPressedDispatcher::onBackPressed,
             onClickTopAppBar = ::openMangaScreen,
             bookmarked = state.bookmarked,
@@ -566,6 +580,7 @@ class ReaderActivity : BaseActivity() {
             onOpenInWebView = ::openChapterInWebView.takeIf { isHttpSource },
             onOpenInBrowser = ::openChapterInBrowser.takeIf { isHttpSource },
             onShare = ::shareChapter.takeIf { isHttpSource },
+            onSelectSource = viewModel::openSourceSelectDialog.takeIf { state.hasLinkedSources },
 
             chapterNavigatorType = if (!verticalNavigator) {
                 if (readingMode == ReadingMode.RIGHT_TO_LEFT) {
