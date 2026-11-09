@@ -4,9 +4,12 @@ import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.lifecycle.asFlow
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -25,6 +28,7 @@ import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.i18n.R
+import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -60,13 +64,15 @@ class DownloadWorker(context: Context, workerParams: WorkerParameters) : Corouti
     }
 
     override suspend fun doWork(): Result {
+        downloader.awaitRestore()
+        if (downloader.queueState.value.isEmpty()) return Result.success()
         var networkIssue = networkIssue()
         if (networkIssue != null) {
             downloader.stop(networkIssue)
-            return Result.failure()
+            return Result.retry()
         }
 
-        if (!downloader.start()) return Result.failure()
+        if (!downloader.start()) return Result.success()
 
         try {
             setForegroundSafely()
@@ -82,7 +88,11 @@ class DownloadWorker(context: Context, workerParams: WorkerParameters) : Corouti
             }
         }
 
-        return Result.success()
+        return if (networkIssue != null && downloader.queueState.value.isNotEmpty()) {
+            Result.retry()
+        } else {
+            Result.success()
+        }
     }
 
     private fun networkIssue(): String? {
@@ -101,9 +111,15 @@ class DownloadWorker(context: Context, workerParams: WorkerParameters) : Corouti
         fun start(context: Context) {
             val request = OneTimeWorkRequestBuilder<DownloadWorker>()
                 .addTag(TAG)
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(TAG, ExistingWorkPolicy.REPLACE, request)
+        }
+
+        fun stop(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(TAG)
         }
 
         fun isRunningFlow(context: Context): Flow<Boolean> {
