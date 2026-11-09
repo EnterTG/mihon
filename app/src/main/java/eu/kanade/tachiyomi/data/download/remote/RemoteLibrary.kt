@@ -246,6 +246,7 @@ class RemoteLibrary(
         manga: Manga,
         chapter: Chapter,
         source: HttpSource?,
+        originChapter: Chapter = chapter,
     ): RemoteChapter = withContext(Dispatchers.IO) {
         indexReady.await()
         val key = key(manga, chapter)
@@ -254,7 +255,7 @@ class RemoteLibrary(
         refresh()
         entries().firstOrNull { it.key == key }?.let { return@withContext it }
         checkNotNull(source) { "Install the source extension to download this chapter to the server" }
-        val pages = source.getPageList(chapter.toSChapter())
+        val pages = source.getPageList(originChapter.toSChapter())
         require(pages.size in 1..2000) { "Remote chapters must contain 1 to 2000 pages" }
         val manifest = pages.map { page ->
             if (page.imageUrl.isNullOrEmpty()) page.imageUrl = source.getImageUrl(page)
