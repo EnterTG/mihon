@@ -26,19 +26,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -48,6 +47,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import logcat.LogPriority
 import mihon.core.archive.ZipWriter
 import mihon.core.metro.AppCoroutineScope
@@ -68,6 +68,7 @@ import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.i18n.MR
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -118,9 +119,17 @@ class Downloader(
     @Volatile
     var isPaused: Boolean = false
 
+    private val restored = CompletableDeferred<Unit>()
+
+    suspend fun awaitRestore() = restored.await()
+
     init {
         scope.launch(Dispatchers.Main, CoroutineStart.UNDISPATCHED) {
-            addAllToQueue(withContext(Dispatchers.IO) { store.restore() })
+            try {
+                addAllToQueue(withContext(Dispatchers.IO) { store.restore() })
+            } finally {
+                restored.complete(Unit)
+            }
         }
     }
 
@@ -130,7 +139,10 @@ class Downloader(
      *
      * @return true if the downloader is started, false otherwise.
      */
-    suspend fun start(): Boolean = lock.withLock { startLocked() }
+    suspend fun start(): Boolean {
+        awaitRestore()
+        return lock.withLock { startLocked() }
+    }
 
     /**
      * Stops the downloader.
@@ -141,10 +153,6 @@ class Downloader(
     // downloader stopped and started again, and that newer run must not be stopped
     private suspend fun stopIfFinished(owner: Job) = lock.withLock {
         if (downloaderJob === owner && owner.isActive && areAllDownloadsFinished()) stopLocked()
-    }
-
-    private suspend fun stopIfCurrent(owner: Job) = lock.withLock {
-        if (downloaderJob === owner && owner.isActive) stopLocked()
     }
 
     /**
@@ -221,30 +229,18 @@ class Downloader(
             withContext(NonCancellable) { previousJob?.join() }
             val owner = coroutineContext.job
 
-            val activeDownloadsFlow = combine(
-                queueState,
+            val downloadsWithStates = queueState.withDownloadStates()
+            val activeSourcesFlow = combine(
+                downloadsWithStates,
                 downloadPreferences.parallelSourceLimit.changes(),
-            ) { a, b -> a to b }.transformLatest { (queue, parallelCount) ->
-                while (true) {
-                    val activeDownloads = queue.asSequence()
-                        // Ignore completed downloads, leave them in the queue
-                        .filter { it.status.value <= Download.State.DOWNLOADING.value }
-                        .groupBy { it.source }
-                        .toList()
-                        .take(parallelCount)
-                        .map { (_, downloads) -> downloads.first() }
-                    emit(activeDownloads)
-
-                    if (activeDownloads.isEmpty()) break
-                    // Suspend until a download enters the ERROR state
-                    val activeDownloadsErroredFlow =
-                        combine(activeDownloads.map(Download::statusFlow)) { states ->
-                            states.contains(Download.State.ERROR)
-                        }.filter { it }
-                    activeDownloadsErroredFlow.first()
-                }
-            }
-                .distinctUntilChanged()
+            ) { downloads, parallelCount ->
+                downloads.asSequence()
+                    .filter { (_, state) -> state != Download.State.ERROR && state != Download.State.NOT_DOWNLOADED }
+                    .map { (download, _) -> download.source }
+                    .distinct()
+                    .take(parallelCount)
+                    .toList()
+            }.distinctUntilChanged()
 
             // Use supervisorScope to cancel child jobs when the downloader job is cancelled
             supervisorScope {
@@ -255,14 +251,37 @@ class Downloader(
                 launch {
                     queueState.collect { queue ->
                         downloadJobs.keys.filter { it !in queue }.forEach { downloadJobs.remove(it)?.cancel() }
+                        // The last chapter can be cancelled by source cleanup just after removing itself.
+                        // Finish from this independent observer so the worker cannot stay alive with an empty queue.
+                        if (queue.isEmpty()) stopIfFinished(owner)
                     }
                 }
 
-                activeDownloadsFlow.collectLatest { activeDownloads ->
-                    val activeSources = activeDownloads.map { it.source }
+                launch {
+                    queueState.retryFailedDownloads { download ->
+                        lock.withLock {
+                            if (downloaderJob === owner && owner.isActive &&
+                                download in queueState.value && download.status == Download.State.ERROR
+                            ) {
+                                // Refresh expired image URLs; completed pages are reused from the temporary directory.
+                                download.pages = null
+                                // Retry behind fresh work so a broken source cannot repeatedly preempt it.
+                                _queueState.update { queue ->
+                                    if (download !in queue) return@update queue
+                                    store.addAll(listOf(download))
+                                    queue - download + download
+                                }
+                                download.status = Download.State.QUEUE
+                            }
+                        }
+                    }
+                }
+
+                activeSourcesFlow.collect { activeSources ->
                     val sourceJobsToStop = sourceJobs.filter { it.key !in activeSources }
                     sourceJobsToStop.forEach { (source, job) ->
                         job.cancel()
+                        job.join()
                         sourceJobs.remove(source)
                     }
 
@@ -288,13 +307,13 @@ class Downloader(
         val slots = Semaphore(downloadPreferences.parallelPageLimit.get())
         while (true) {
             // A canceled job can mark a chapter as downloading after it's been reset, so that counts as waiting too
-            val download = queueState
-                .map { queue ->
-                    queue.firstOrNull {
-                        it.source == source &&
-                            (it.status == Download.State.QUEUE || it.status == Download.State.DOWNLOADING) &&
-                            it !in downloadJobs
-                    }
+            val download = queueState.withDownloadStates()
+                .map { downloads ->
+                    downloads.firstOrNull { (download, state) ->
+                        download.source == source &&
+                            (state == Download.State.QUEUE || state == Download.State.DOWNLOADING) &&
+                            download !in downloadJobs
+                    }?.first
                 }
                 .filterNotNull()
                 .first()
@@ -320,7 +339,8 @@ class Downloader(
             // Removed from the queue between being picked and starting
             if (download !in queueState.value) return@launch
 
-            downloadChapter(download, slots, pagesStarted)
+            // Bound stalled extensions and NAS requests too, while preserving partial files for the next attempt.
+            withTimeout(35.minutes) { downloadChapter(download, slots, pagesStarted) }
 
             // Remove successful download from queue
             if (download.status == Download.State.DOWNLOADED) {
@@ -328,10 +348,11 @@ class Downloader(
             }
             stopIfFinished(owner)
         } catch (e: Throwable) {
-            if (e is CancellationException) throw e
+            // A timeout of this attempt is retryable; pausing/removing the download still cancels it.
+            currentCoroutineContext().ensureActive()
             logcat(LogPriority.ERROR, e)
-            notifier.onError(e.message)
-            stopIfCurrent(owner)
+            download.status = Download.State.ERROR
+            notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
         } finally {
             // Also when the chapter fails before its pages, so the source moves on to the next one
             pagesStarted.complete(Unit)
@@ -477,7 +498,7 @@ class Downloader(
             // If the page list already exists, start from the file
             val pageList = download.pages ?: run {
                 // Otherwise, pull page list from network and add them to download object
-                val pages = download.source.getPageList(download.chapter.toSChapter())
+                val pages = withTimeout(2.minutes) { download.source.getPageList(download.chapter.toSChapter()) }
 
                 if (pages.isEmpty()) {
                     throw Exception(context.stringResource(MR.strings.page_list_empty_error))
@@ -500,8 +521,9 @@ class Downloader(
                         if (page.imageUrl.isNullOrEmpty()) {
                             page.status = Page.State.LoadPage
                             try {
-                                page.imageUrl = download.source.getImageUrl(page)
+                                page.imageUrl = withTimeout(2.minutes) { download.source.getImageUrl(page) }
                             } catch (e: Throwable) {
+                                currentCoroutineContext().ensureActive()
                                 page.status = Page.State.Error(e)
                             }
                         }
@@ -581,7 +603,7 @@ class Downloader(
             page.progress = 100
             page.status = Page.State.Ready
         } catch (e: Throwable) {
-            if (e is CancellationException) throw e
+            currentCoroutineContext().ensureActive()
             // Mark this page as error and allow to download the remaining
             page.progress = 0
             page.status = Page.State.Error(e)
@@ -600,39 +622,41 @@ class Downloader(
     private suspend fun downloadImage(page: Page, source: HttpSource, tmpDir: UniFile, filename: String): UniFile {
         page.status = Page.State.DownloadImage
         page.progress = 0
-        return flow {
-            val file = tmpDir.findFile("$filename.tmp")
-                ?: tmpDir.createFile("$filename.tmp")!!
+        return withTimeout(2.minutes) {
+            flow {
+                val file = tmpDir.findFile("$filename.tmp")
+                    ?: tmpDir.createFile("$filename.tmp")!!
 
-            try {
-                source.getImage(page, file.length()).use {
-                    it.body.source().saveTo(
-                        // If the server supports partial downloads (HTTP 206),
-                        // append to the existing file.
-                        // Otherwise, start from scratch and overwrite the file.
-                        stream = file.openOutputStream(it.code == 206),
-                    )
-                    val extension = getImageExtension(it, file)
-                    file.renameTo("$filename.$extension")
+                try {
+                    source.getImage(page, file.length()).use {
+                        it.body.source().saveTo(
+                            // If the server supports partial downloads (HTTP 206),
+                            // append to the existing file.
+                            // Otherwise, start from scratch and overwrite the file.
+                            stream = file.openOutputStream(it.code == 206),
+                        )
+                        val extension = getImageExtension(it, file)
+                        file.renameTo("$filename.$extension")
+                    }
+                } catch (e: HttpException) {
+                    if (e.code == 416) {
+                        file.delete()
+                    }
+                    throw e
                 }
-            } catch (e: HttpException) {
-                if (e.code == 416) {
-                    file.delete()
-                }
-                throw e
+                emit(file)
             }
-            emit(file)
+                // Retry 3 times, waiting 2, 4 and 8 seconds between attempts.
+                .retryWhen { _, attempt ->
+                    if (attempt < 3) {
+                        delay((2L shl attempt.toInt()).seconds)
+                        true
+                    } else {
+                        false
+                    }
+                }
+                .first()
         }
-            // Retry 3 times, waiting 2, 4 and 8 seconds between attempts.
-            .retryWhen { _, attempt ->
-                if (attempt < 3) {
-                    delay((2L shl attempt.toInt()).seconds)
-                    true
-                } else {
-                    false
-                }
-            }
-            .first()
     }
 
     /**
@@ -766,10 +790,10 @@ class Downloader(
     }
 
     /**
-     * Returns true if all the queued downloads are in DOWNLOADED or ERROR state.
+     * Errors remain pending until a later automatic retry succeeds or the user removes them.
      */
     private fun areAllDownloadsFinished(): Boolean {
-        return queueState.value.none { it.status.value <= Download.State.DOWNLOADING.value }
+        return queueState.value.all { it.status == Download.State.DOWNLOADED }
     }
 
     private fun addAllToQueue(downloads: List<Download>) {
