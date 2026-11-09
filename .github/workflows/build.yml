@@ -1,5 +1,6 @@
 name: Build & Test
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - '**'
@@ -83,7 +84,7 @@ jobs:
 
       - name: Configure persistent Yomira signing
         id: signing
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon'
         shell: bash
         env:
           YOMIRA_KEYSTORE_BASE64: ${{ secrets.YOMIRA_KEYSTORE_BASE64 }}
@@ -155,7 +156,7 @@ jobs:
 
   publish:
     name: Publish signed Yomira update
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon' && needs.build.outputs.signed_ready == 'true'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'EnterTG/mihon' && needs.build.outputs.signed_ready == 'true'
     needs: [build, remote-library]
     runs-on: ubuntu-26.04
     permissions:
