@@ -16,6 +16,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mihon.data.cache.ChapterCache
+import tachiyomi.domain.chapter.model.Chapter
 import java.io.FileNotFoundException
 import java.util.concurrent.ConcurrentHashMap
 
@@ -28,6 +29,7 @@ internal class HttpPageLoader(
     private val chapterCache: ChapterCache,
     private val appScope: CoroutineScope,
     private val canLoadAhead: () -> Boolean,
+    private val originChapter: Chapter = chapter.chapter,
 ) : PageLoader() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -42,8 +44,8 @@ internal class HttpPageLoader(
      * otherwise fallbacks to network.
      */
     override suspend fun getPages(): List<ReaderPage> {
-        val pages = chapterCache.getPageList(chapter.chapter)
-            ?: source.getPageList(chapter.chapter.toSChapter())
+        val pages = chapterCache.getPageList(originChapter)
+            ?: source.getPageList(originChapter.toSChapter())
         return pages.mapIndexed { index, page ->
             // Don't trust sources and use our own indexing
             ReaderPage(index, page.url, page.imageUrl).also {
