@@ -90,6 +90,7 @@ class ChapterLoader(
         }
         val selectedSource = selected?.source ?: source
         val originChapter = selected?.chapter ?: chapter.chapter
+        val manualOverride = sourceLinks.preferredSourceId(chapter.chapter.id) != null
         if (downloadManager.remoteLibrary.enabled && source !is LocalSource) {
             return RemotePageLoader(
                 chapter,
@@ -97,9 +98,10 @@ class ChapterLoader(
                 selectedSource as? HttpSource,
                 downloadManager.remoteLibrary,
                 originChapter,
+                manualOverride,
             )
         }
-        if (selected != null && selectedSource.id != source.id) {
+        if (selected != null && (manualOverride || selectedSource.id != source.id)) {
             // Do not serve the primary source's already downloaded CBZ when a mirror was selected.
             return HttpPageLoader(chapter, selected.source, chapterCache, appScope, canLoadAhead, originChapter)
         }
