@@ -124,8 +124,8 @@ jobs:
           [[ "$apk_info" == "package: name='app.yomira' "* ]]
           echo "Verified standalone APK package: app.yomira"
           if [[ "${YOMIRA_SIGNING_READY:-false}" == "true" ]]; then
-            version_name=$(sed -n "s/^package: .*versionName='\\([^']*\\)'.*/\\1/p" <<< "$apk_info" | head -n 1)
-            [[ "$version_name" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+-yomira-preview\\.[0-9]+$ ]]
+            version_name=$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<< "$apk_info" | head -n 1)
+            [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+-yomira-preview\.[0-9]+$ ]]
             echo "release_tag=v${version_name}" >> "$GITHUB_OUTPUT"
           fi
         env:
@@ -174,7 +174,7 @@ jobs:
           RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
         run: |
           set -euo pipefail
-          [[ "$RELEASE_TAG" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+-yomira-preview\\.[0-9]+$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-yomira-preview\.[0-9]+$ ]]
           mkdir -p release
           cp release-input/app-universal-release.apk "release/yomira-${RELEASE_TAG}.apk"
           cp release-input/app-arm64-v8a-release.apk "release/yomira-arm64-v8a-${RELEASE_TAG}.apk"
