@@ -262,6 +262,12 @@ class Downloader(
                             ) {
                                 // Refresh expired image URLs; completed pages are reused from the temporary directory.
                                 download.pages = null
+                                // Retry behind fresh work so a broken source cannot repeatedly preempt it.
+                                _queueState.update { queue ->
+                                    if (download !in queue) return@update queue
+                                    store.addAll(listOf(download))
+                                    queue - download + download
+                                }
                                 download.status = Download.State.QUEUE
                             }
                         }
