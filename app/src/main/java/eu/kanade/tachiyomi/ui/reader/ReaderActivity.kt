@@ -280,7 +280,7 @@ class ReaderActivity : BaseActivity() {
             }
 
             val onDismissRequest = viewModel::closeDialog
-            when (state.dialog) {
+            when (val dialog = state.dialog) {
                 is ReaderViewModel.Dialog.Settings -> {
                     ReaderSettingsDialog(
                         onDismissRequest = onDismissRequest,
@@ -313,14 +313,14 @@ class ReaderActivity : BaseActivity() {
                 }
                 is ReaderViewModel.Dialog.SourceSelect -> {
                     ReaderSourceSelectDialog(
-                        dialog = state.dialog,
+                        dialog = dialog,
                         onChoose = viewModel::switchChapterSource,
                         onDismiss = onDismissRequest,
                     )
                 }
                 is ReaderViewModel.Dialog.SourceError -> {
                     ReaderSourceErrorDialog(
-                        message = state.dialog.message,
+                        message = dialog.message,
                         onDismiss = onDismissRequest,
                     )
                 }
