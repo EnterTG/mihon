@@ -96,6 +96,7 @@ class GetApplicationReleaseTest {
 
         result shouldBe GetApplicationRelease.Result.NoNewUpdate
     }
+
     @Test
     fun `Yomira preview with greater build number is a new update`() = runTest {
         coEvery { releaseService.latest(any()) } returns Release(
@@ -153,5 +154,4 @@ class GetApplicationReleaseTest {
 
         result shouldBe GetApplicationRelease.Result.NoNewUpdate
     }
-
 }
