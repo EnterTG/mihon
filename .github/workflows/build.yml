@@ -148,6 +148,7 @@ jobs:
           fi
         env:
           YOMIRA_SIGNING_READY: ${{ steps.signing.outputs.ready }}
+          YOMIRA_SIGNING_PASSWORD: ${{ secrets.YOMIRA_SIGNING_PASSWORD }}
 
       - name: Upload CI APK
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
