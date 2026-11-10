@@ -136,11 +136,11 @@ jobs:
               exit 1
             fi
             for apk in app/build/outputs/apk/release/app-arm64-v8a-release.apk app/build/outputs/apk/release/app-universal-release.apk; do
-              # Modern apksigner may label signers as '#1' or '(minSdkVersion=...)'.
+              # Support apksigner outputs such as 'V2 Signer:' and 'Signer #1'.
               # Check every distinct signer certificate, not just the first.
               signer_output=$("${apksigner_tools[-1]}" verify --print-certs "$apk")
               certificate_digests=$(printf '%s\n' "$signer_output" |
-                sed -nE 's/^Signer .*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64})[[:space:]]*$/\1/p' |
+                sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64})[[:space:]]*$/\1/p' |
                 tr '[:upper:]' '[:lower:]' | sort -u)
               echo "::notice::$(basename "$apk") certificate SHA-256: ${certificate_digests:-NOT_FOUND}"
               if [[ -z "$certificate_digests" ]]; then
