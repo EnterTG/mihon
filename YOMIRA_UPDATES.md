@@ -61,3 +61,12 @@ wybierzesz inny klucz przed **pierwszym** wydaniem, dostosuj kontrolę
 `expected_digest` w workflow. Po pierwszej publikacji nie zmieniaj odcisku ani klucza.
 
 Nie zmieniaj ani nie regeneruj klucza dla kolejnych wydań.
+
+## Kontrola certyfikatu w CI
+
+Podczas publikacji skrypt sprawdza, czy certyfikat keystore i certyfikaty **obu**
+wersji APK (uniwersalnej i ARM64) mają dokładnie ten sam odcisk SHA-256.
+Narzędzie Android `apksigner` może używać różnych etykiet podpisów
+(`Signer #1` lub `Signer (minSdkVersion=...)`), dlatego weryfikator
+odczytuje oba warianty. Nie wyłączaj tego sprawdzenia, nawet jeżeli build
+APK zakończył się sukcesem.
