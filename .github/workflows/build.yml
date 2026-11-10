@@ -126,22 +126,33 @@ jobs:
           echo "Verified standalone APK package: app.yomira"
           if [[ "${YOMIRA_SIGNING_READY:-false}" == "true" ]]; then
             apksigner_tools=("$ANDROID_HOME"/build-tools/*/apksigner)
-            certificate_digest=$("${apksigner_tools[-1]}" verify --print-certs app/build/outputs/apk/release/app-arm64-v8a-release.apk |
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1)
             expected_digest="0f4f78c2346e5088e2c30d33bd5fa61c098a03ac57a666d03034f8a45a5ccb5b"
             key_digest=$(keytool -exportcert -alias yomira -keystore "$RUNNER_TEMP/yomira.keystore" \
               -storepass "$YOMIRA_SIGNING_PASSWORD" 2>/dev/null | sha256sum | cut -d' ' -f1)
             echo "::notice::Expected certificate SHA-256: $expected_digest"
             echo "::notice::Configured keystore certificate SHA-256: $key_digest"
-            echo "::notice::Built APK certificate SHA-256: ${certificate_digest:-NOT_FOUND}"
             if [[ "$key_digest" != "$expected_digest" ]]; then
               echo "::error::Configured keystore is not the original Yomira signing key. Use the same key for every release."
               exit 1
             fi
-            if [[ "$certificate_digest" != "$key_digest" ]]; then
-              echo "::error::APK was not signed by configured Yomira signing key. Refusing to publish."
-              exit 1
-            fi
+            for apk in app/build/outputs/apk/release/app-arm64-v8a-release.apk app/build/outputs/apk/release/app-universal-release.apk; do
+              # Modern apksigner may label signers as '#1' or '(minSdkVersion=...)'.
+              # Check every distinct signer certificate, not just the first.
+              signer_output=$("${apksigner_tools[-1]}" verify --print-certs "$apk")
+              certificate_digests=$(printf '%s\\n' "$signer_output" |
+                sed -nE 's/^Signer .*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64})[[:space:]]*$/\\1/p' |
+                tr '[:upper:]' '[:lower:]' | sort -u)
+              echo "::notice::$(basename "$apk") certificate SHA-256: ${certificate_digests:-NOT_FOUND}"
+              if [[ -z "$certificate_digests" ]]; then
+                echo "::error::Could not parse APK signing certificate. Raw apksigner certificate report follows:"
+                printf '%s\\n' "$signer_output"
+                exit 1
+              fi
+              if [[ "$certificate_digests" != "$key_digest" ]]; then
+                echo "::error::APK was not signed by configured Yomira signing key. Refusing to publish."
+                exit 1
+              fi
+            done
             version_name=$(sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p" <<< "$apk_info" | head -n 1)
             [[ "$version_name" =~ ^[0-9]+\.[0-9]+\.[0-9]+-yomira-preview\.[0-9]+$ ]]
             echo "release_tag=v${version_name}" >> "$GITHUB_OUTPUT"
