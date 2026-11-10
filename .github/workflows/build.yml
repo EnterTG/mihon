@@ -139,13 +139,13 @@ jobs:
               # Modern apksigner may label signers as '#1' or '(minSdkVersion=...)'.
               # Check every distinct signer certificate, not just the first.
               signer_output=$("${apksigner_tools[-1]}" verify --print-certs "$apk")
-              certificate_digests=$(printf '%s\\n' "$signer_output" |
-                sed -nE 's/^Signer .*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64})[[:space:]]*$/\\1/p' |
+              certificate_digests=$(printf '%s\n' "$signer_output" |
+                sed -nE 's/^Signer .*certificate SHA-256 digest:[[:space:]]*([[:xdigit:]]{64})[[:space:]]*$/\1/p' |
                 tr '[:upper:]' '[:lower:]' | sort -u)
               echo "::notice::$(basename "$apk") certificate SHA-256: ${certificate_digests:-NOT_FOUND}"
               if [[ -z "$certificate_digests" ]]; then
                 echo "::error::Could not parse APK signing certificate. Raw apksigner certificate report follows:"
-                printf '%s\\n' "$signer_output"
+                printf '%s\n' "$signer_output"
                 exit 1
               fi
               if [[ "$certificate_digests" != "$key_digest" ]]; then
