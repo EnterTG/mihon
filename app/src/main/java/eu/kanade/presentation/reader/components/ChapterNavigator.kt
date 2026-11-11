@@ -96,7 +96,11 @@ fun ChapterNavigator(
                     val event = awaitPointerEvent(PointerEventPass.Initial)
                     if (locked) event.changes.forEach { it.consume() }
                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if (!change.pressed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+                    if (!change.pressed ||
+                        (change.position - down.position).getDistance() > viewConfiguration.touchSlop
+                    ) {
+                        break
+                    }
                 }
                 true
             }
