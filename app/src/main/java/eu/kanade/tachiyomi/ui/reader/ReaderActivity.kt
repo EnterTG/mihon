@@ -562,6 +562,7 @@ class ReaderActivity : BaseActivity() {
         val isPagerType = ReadingMode.isPagerType(viewModel.getMangaReadingMode())
         val cropEnabled = if (isPagerType) cropBorderPaged else cropBorderWebtoon
 
+        val showChapterNavigator by readerPreferences.showChapterNavigator.collectAsState()
         val verticalNavigatorModes by readerPreferences.verticalNavigator.collectAsState()
         val verticalNavigator = verticalNavigatorModes.contains(readingMode)
         val verticalNavigatorOnLeft by readerPreferences.verticalNavigatorOnLeft.collectAsState()
@@ -582,6 +583,7 @@ class ReaderActivity : BaseActivity() {
             onShare = ::shareChapter.takeIf { isHttpSource },
             onSelectSource = viewModel::openSourceSelectDialog.takeIf { state.hasLinkedSources },
 
+            showChapterNavigator = showChapterNavigator,
             chapterNavigatorType = if (!verticalNavigator) {
                 if (readingMode == ReadingMode.RIGHT_TO_LEFT) {
                     ChapterNavigatorType.HORIZONTAL_RTL

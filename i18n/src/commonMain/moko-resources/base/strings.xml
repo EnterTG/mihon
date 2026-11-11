@@ -1106,4 +1106,7 @@
     <string name="remote_library_connected">Connected; server library refreshed</string>
     <string name="remote_library_connection_error">Connection failed. Check the server URL, token and network.</string>
     <string name="remote_library_summary">Requires the Yomira companion service on your NAS. Images are downloaded by the server. The device buffers only the current chapter, one previous and two next chapters; prefetch follows the reader Wi-Fi setting. Existing local downloads are kept. Automatic deletion after reading is disabled for the server archive. Use HTTPS or a trusted private network. New reading sessions, reading time and last page are also saved on the server, except in incognito mode. Offline history is sent when the server becomes available.</string>
+    <string name="pref_show_chapter_navigator">Show chapter navigation bar</string>
+    <string name="chapter_navigator_locked">Navigation locked. Touch and hold to unlock.</string>
+    <string name="chapter_navigator_unlocked">Navigation unlocked.</string>
 </resources>

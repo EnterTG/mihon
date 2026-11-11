@@ -1,6 +1,9 @@
 package eu.kanade.presentation.reader.components
 
+import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -37,6 +40,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.tooling.preview.Preview
@@ -65,6 +71,8 @@ enum class ChapterNavigatorType {
 @Composable
 fun ChapterNavigator(
     type: ChapterNavigatorType,
+    locked: Boolean = false,
+    onToggleLocked: () -> Unit = {},
     onNextChapter: () -> Unit,
     enabledNext: Boolean,
     onPreviousChapter: () -> Unit,
@@ -76,6 +84,33 @@ fun ChapterNavigator(
     modifier: Modifier = Modifier,
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val lockedMessage = stringResource(MR.strings.chapter_navigator_locked)
+    val unlockedMessage = stringResource(MR.strings.chapter_navigator_unlocked)
+    val gestureModifier = modifier.pointerInput(locked, onToggleLocked) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            if (locked) down.consume()
+            val releasedOrMoved = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (locked) event.changes.forEach { it.consume() }
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed || (change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+                }
+                true
+            }
+            if (releasedOrMoved == null) {
+                onToggleLocked()
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(context, if (locked) unlockedMessage else lockedMessage, Toast.LENGTH_SHORT).show()
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+            }
+        }
+    }
 
     val state = if (totalPages > 1) {
         key(totalPages) {
@@ -118,36 +153,38 @@ fun ChapterNavigator(
         HorizontalChapterNavigator(
             isRtl = type == ChapterNavigatorType.HORIZONTAL_RTL,
             state = state,
+            sliderEnabled = !locked,
             onNextChapter = onNextChapter,
-            enabledNext = enabledNext,
+            enabledNext = enabledNext && !locked,
             onPreviousChapter = onPreviousChapter,
-            enabledPrevious = enabledPrevious,
+            enabledPrevious = enabledPrevious && !locked,
             currentPage = currentPage,
             totalPages = totalPages,
-            onPageChange = onPageChange,
+            onPageChange = { if (!locked) onPageChange(it) },
             onPageChangeFinished = onPageIndexChangeFinished,
             interactionSource = interactionSource,
             mainAxisPadding = mainAxisPadding,
             backgroundColor = backgroundColor,
             buttonColor = buttonColor,
-            modifier = modifier,
+            modifier = gestureModifier,
         )
     } else {
         VerticalChapterNavigator(
             state = state,
+            sliderEnabled = !locked,
             onNextChapter = onNextChapter,
-            enabledNext = enabledNext,
+            enabledNext = enabledNext && !locked,
             onPreviousChapter = onPreviousChapter,
-            enabledPrevious = enabledPrevious,
+            enabledPrevious = enabledPrevious && !locked,
             currentPage = currentPage,
             totalPages = totalPages,
-            onPageChange = onPageChange,
+            onPageChange = { if (!locked) onPageChange(it) },
             onPageChangeFinished = onPageIndexChangeFinished,
             interactionSource = interactionSource,
             mainAxisPadding = mainAxisPadding,
             backgroundColor = backgroundColor,
             buttonColor = buttonColor,
-            modifier = modifier,
+            modifier = gestureModifier,
         )
     }
 }
@@ -156,6 +193,7 @@ fun ChapterNavigator(
 fun HorizontalChapterNavigator(
     isRtl: Boolean,
     state: SliderState?,
+    sliderEnabled: Boolean,
     onNextChapter: () -> Unit,
     enabledNext: Boolean,
     onPreviousChapter: () -> Unit,
@@ -211,6 +249,7 @@ fun HorizontalChapterNavigator(
 
                         Slider(
                             state = state,
+                            enabled = sliderEnabled,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 8.dp),
@@ -245,6 +284,7 @@ fun HorizontalChapterNavigator(
 @Composable
 fun VerticalChapterNavigator(
     state: SliderState?,
+    sliderEnabled: Boolean,
     onNextChapter: () -> Unit,
     enabledNext: Boolean,
     onPreviousChapter: () -> Unit,
@@ -290,6 +330,7 @@ fun VerticalChapterNavigator(
 
                 VerticalSlider(
                     state = state,
+                    enabled = sliderEnabled,
                     modifier = Modifier
                         .weight(1f)
                         .padding(vertical = 8.dp),

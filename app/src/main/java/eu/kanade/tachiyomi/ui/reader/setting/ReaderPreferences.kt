@@ -39,6 +39,8 @@ class ReaderPreferences(
 
     val doubleTapAnimSpeed: Preference<Int> = preferenceStore.getInt("pref_double_tap_anim_speed", 500)
 
+    val showChapterNavigator: Preference<Boolean> = preferenceStore.getBoolean("pref_show_chapter_navigator", true)
+
     val showPageNumber: Preference<Boolean> = preferenceStore.getBoolean("pref_show_page_number_key", true)
 
     val verticalNavigator: Preference<Set<ReadingMode>> = preferenceStore.getEnumSet(

@@ -827,4 +827,7 @@
     <string name="remote_library_connected">Połączono; odświeżono bibliotekę serwera</string>
     <string name="remote_library_connection_error">Błąd połączenia. Sprawdź adres serwera, token i sieć.</string>
     <string name="remote_library_summary">Wymaga usługi towarzyszącej Yomira na NAS. Obrazy pobiera serwer. Urządzenie buforuje tylko bieżący rozdział, jeden poprzedni i dwa następne; pobieranie z wyprzedzeniem uwzględnia ustawienie Wi-Fi czytnika. Istniejące lokalne pliki pozostają zachowane. Automatyczne usuwanie po przeczytaniu jest wyłączone dla archiwum na serwerze. Używaj HTTPS lub zaufanej sieci prywatnej. Nowe sesje czytania, czas i ostatnia strona są również zapisywane na serwerze, poza trybem incognito. Historia zapisana offline zostanie wysłana po odzyskaniu połączenia.</string>
+    <string name="pref_show_chapter_navigator">Pokazuj pasek nawigacji rozdziału</string>
+    <string name="chapter_navigator_locked">Nawigacja zablokowana. Przytrzymaj, aby odblokować.</string>
+    <string name="chapter_navigator_unlocked">Nawigacja odblokowana.</string>
 </resources>
