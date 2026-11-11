@@ -739,6 +739,9 @@ class MangaViewModel(
             DownloadAction.NEXT_10_CHAPTERS -> getUnreadChaptersSorted().take(10)
             DownloadAction.NEXT_25_CHAPTERS -> getUnreadChaptersSorted().take(25)
             DownloadAction.UNREAD_CHAPTERS -> getUnreadChapters()
+            DownloadAction.ALL_CHAPTERS -> allChapters.orEmpty()
+                .filter { it.downloadState == Download.State.NOT_DOWNLOADED }
+                .map { it.chapter }
             DownloadAction.BOOKMARKED_CHAPTERS -> getBookmarkedChapters()
         }
         if (chaptersToDownload.isNotEmpty()) {

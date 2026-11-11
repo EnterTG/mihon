@@ -66,6 +66,7 @@
     <string name="chapter_paused">Wstrzymane</string>
     <string name="manga_download">Pobierz</string>
     <string name="download_unread">Pobierz nieprzeczytane</string>
+    <string name="download_all_chapters">Pobierz wszystkie rozdziały</string>
     <string name="confirm_delete_chapters">Czy na pewno chcesz usunąć wybrane rozdziały?</string>
     <string name="reading">Czytane</string>
     <string name="completed">Ukończone</string>
