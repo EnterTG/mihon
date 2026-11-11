@@ -124,14 +124,14 @@ abstract class SearchViewModel(
         preferences.globalSearchFilterState.toggle()
     }
 
-    fun search() {
+    fun search(force: Boolean = false) {
         val query = state.value.searchQuery
         val sourceFilter = state.value.sourceFilter
 
         if (query.isNullOrBlank()) return
 
         val sameQuery = this.lastQuery == query
-        if (sameQuery && this.lastSourceFilter == sourceFilter) return
+        if (!force && sameQuery && this.lastSourceFilter == sourceFilter) return
 
         this.lastQuery = query
         this.lastSourceFilter = sourceFilter
@@ -142,7 +142,7 @@ abstract class SearchViewModel(
             val sources = getSelectedSources()
 
             // Reuse previous results if possible
-            if (sameQuery) {
+            if (sameQuery && !force) {
                 val existingResults = state.value.items
                 updateItems(
                     sources
