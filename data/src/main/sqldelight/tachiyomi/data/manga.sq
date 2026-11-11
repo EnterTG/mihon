@@ -188,6 +188,10 @@ deleteNonLibraryManga:
 DELETE FROM manga
 WHERE user_favorite_at IS NULL
 AND source_id IN :sourceIds
+-- Mirror records are needed for source switching, even when not in the library.
+AND NOT EXISTS (
+    SELECT 1 FROM manga_source_link WHERE manga_source_link.mirror_manga_id = manga.id
+)
 AND (
     :keepReadManga = 0
     OR NOT EXISTS (

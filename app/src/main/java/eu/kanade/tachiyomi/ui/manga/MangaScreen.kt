@@ -92,9 +92,6 @@ class MangaScreen(
 
         val successState = state as MangaViewModel.State.Success
         val isHttpSource = remember { successState.source is HttpSource }
-        var showLinkedSources by remember { mutableStateOf(false) }
-        val linkedCandidates by viewModel.sourceLinkCandidates.collectAsStateWithLifecycle()
-        val linkError by viewModel.sourceLinkError.collectAsStateWithLifecycle()
 
         LaunchedEffect(successState.manga, viewModel.source) {
             if (isHttpSource) {
@@ -161,8 +158,7 @@ class MangaScreen(
                 successState.manga.favorite
             },
             onLinkedSourcesClicked = {
-                viewModel.refreshLinkedSources()
-                showLinkedSources = true
+                navigator.push(LinkedSourceSearchScreen(successState.manga.id))
             }.takeIf { successState.manga.favorite && isHttpSource },
             onMigrateClicked = {
                 navigator.push(MigrationConfigScreen(successState.manga.id))
@@ -177,15 +173,6 @@ class MangaScreen(
             onAllChapterSelected = viewModel::toggleAllSelection,
             onInvertSelection = viewModel::invertSelection,
         )
-
-        if (showLinkedSources) {
-            LinkedSourcesDialog(
-                candidates = linkedCandidates,
-                error = linkError,
-                onToggle = viewModel::toggleSourceLink,
-                onDismiss = { showLinkedSources = false },
-            )
-        }
 
         var showScanlatorsDialog by remember { mutableStateOf(false) }
 

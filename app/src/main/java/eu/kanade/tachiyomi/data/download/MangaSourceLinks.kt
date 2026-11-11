@@ -61,7 +61,7 @@ class MangaSourceLinks(
         require(primaryId != mirrorId) { "A source cannot link to itself" }
         val primary = mangaRepository.getMangaById(primaryId)
         val mirror = mangaRepository.getMangaById(mirrorId)
-        require(primary.favorite && mirror.favorite) { "Add both entries to the library first" }
+        require(primary.favorite) { "The main book must be in the library" }
         require(primary.source != mirror.source) { "Mirrors must use different source extensions" }
         require(links.primaryId(primaryId) == null) {
             "The primary book is already a mirror of another book"

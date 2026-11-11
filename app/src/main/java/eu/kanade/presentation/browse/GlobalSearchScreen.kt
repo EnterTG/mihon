@@ -69,6 +69,7 @@ internal fun GlobalSearchContent(
     onClickItem: (Manga) -> Unit,
     onLongClickItem: (Manga) -> Unit,
     fromSourceId: Long? = null,
+    selectedMangaIds: Set<Long>? = null,
 ) {
     LazyColumn(
         contentPadding = contentPadding,
@@ -93,6 +94,8 @@ internal fun GlobalSearchContent(
                                 getManga = getManga,
                                 onClick = onClickItem,
                                 onLongClick = onLongClickItem,
+                                selectable = selectedMangaIds != null,
+                                isSelected = { manga -> manga.id in selectedMangaIds.orEmpty() },
                             )
                         }
                         is SearchItemResult.Error -> {
