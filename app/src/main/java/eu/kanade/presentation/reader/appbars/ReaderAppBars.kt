@@ -27,6 +27,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -57,6 +61,7 @@ fun ReaderAppBars(
     onShare: (() -> Unit)?,
     onSelectSource: (() -> Unit)?,
 
+    showChapterNavigator: Boolean,
     chapterNavigatorType: ChapterNavigatorType,
     verticalNavigatorHeight: Float,
     onNextChapter: () -> Unit,
@@ -76,6 +81,7 @@ fun ReaderAppBars(
     onClickCropBorder: () -> Unit,
     onClickSettings: () -> Unit,
 ) {
+    var navigatorLocked by rememberSaveable { mutableStateOf(false) }
     val backgroundColor = MaterialTheme.colorScheme
         .surfaceColorAtElevation(3.dp)
         .copy(alpha = if (isSystemInDarkTheme()) 0.9f else 0.95f)
@@ -102,7 +108,7 @@ fun ReaderAppBars(
             )
         }
 
-        if (!chapterNavigatorType.isHorizontal()) {
+        if (showChapterNavigator && !chapterNavigatorType.isHorizontal()) {
             val sliderOnLeft = chapterNavigatorType == ChapterNavigatorType.VERTICAL_LEFT
             CompositionLocalProvider(
                 LocalLayoutDirection provides if (sliderOnLeft) LayoutDirection.Ltr else LayoutDirection.Rtl,
@@ -124,6 +130,8 @@ fun ReaderAppBars(
                                 ChapterNavigator(
                                     modifier = Modifier.fillMaxHeight(verticalNavigatorHeight),
                                     type = chapterNavigatorType,
+                                    locked = navigatorLocked,
+                                    onToggleLocked = { navigatorLocked = !navigatorLocked },
                                     onNextChapter = onNextChapter,
                                     enabledNext = enabledNext,
                                     onPreviousChapter = onPreviousChapter,
@@ -149,9 +157,11 @@ fun ReaderAppBars(
             exit = slideOutVertically(readerBarsSlideAnimationSpec) { it } + fadeOut(readerBarsFadeAnimationSpec),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)) {
-                if (chapterNavigatorType.isHorizontal()) {
+                if (showChapterNavigator && chapterNavigatorType.isHorizontal()) {
                     ChapterNavigator(
                         type = chapterNavigatorType,
+                        locked = navigatorLocked,
+                        onToggleLocked = { navigatorLocked = !navigatorLocked },
                         onNextChapter = onNextChapter,
                         enabledNext = enabledNext,
                         onPreviousChapter = onPreviousChapter,

@@ -392,6 +392,10 @@ object SettingsReaderScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_read_with_volume_keys_inverted),
                     visible = readWithVolumeKeys,
                 ),
+                Preference.PreferenceItem.SwitchPreference(
+                    preference = readerPreferences.showChapterNavigator,
+                    title = stringResource(MR.strings.pref_show_chapter_navigator),
+                ),
                 Preference.PreferenceItem.MultiSelectListPreference(
                     preference = readerPreferences.verticalNavigator,
                     entries = ReadingMode.entries.filter { it != ReadingMode.DEFAULT }

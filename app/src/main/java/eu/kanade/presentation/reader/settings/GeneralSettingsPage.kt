@@ -62,6 +62,11 @@ internal fun ColumnScope.GeneralPage(viewModel: ReaderSettingsViewModel) {
         pref = viewModel.preferences.showPageNumber,
     )
 
+    CheckboxItem(
+        label = stringResource(MR.strings.pref_show_chapter_navigator),
+        pref = viewModel.preferences.showChapterNavigator,
+    )
+
     val verticalNavigatorModes by viewModel.preferences.verticalNavigator.collectAsState()
 
     SettingsChipRow(MR.strings.pref_vertical_navigator) {
