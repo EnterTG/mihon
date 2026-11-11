@@ -22,8 +22,11 @@ fun MigrateSearchScreen(
     onClickSource: (Source) -> Unit,
     onClickItem: (Manga) -> Unit,
     onLongClickItem: (Manga) -> Unit,
+    selectedMangaIds: Set<Long>? = null,
+    bottomBar: @Composable () -> Unit = {},
 ) {
     Scaffold(
+        bottomBar = bottomBar,
         topBar = { scrollBehavior ->
             GlobalSearchToolbar(
                 searchQuery = state.searchQuery,
@@ -49,6 +52,7 @@ fun MigrateSearchScreen(
             onClickSource = onClickSource,
             onClickItem = onClickItem,
             onLongClickItem = onLongClickItem,
+            selectedMangaIds = selectedMangaIds,
         )
     }
 }
