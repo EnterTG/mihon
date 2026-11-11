@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import eu.kanade.presentation.library.components.CommonMangaItemDefaults
@@ -29,6 +31,8 @@ fun GlobalSearchCardRow(
     getManga: @Composable (Manga) -> State<Manga>,
     onClick: (Manga) -> Unit,
     onLongClick: (Manga) -> Unit,
+    selectable: Boolean = false,
+    isSelected: (Manga) -> Boolean = { false },
 ) {
     if (titles.isEmpty()) {
         EmptyResultItem()
@@ -45,6 +49,8 @@ fun GlobalSearchCardRow(
                 title = title.title,
                 cover = title.asMangaCover(),
                 isFavorite = title.favorite,
+                selectable = selectable,
+                selected = isSelected(title),
                 onClick = { onClick(title) },
                 onLongClick = { onLongClick(title) },
             )
@@ -57,6 +63,8 @@ private fun MangaItem(
     title: String,
     cover: MangaCover,
     isFavorite: Boolean,
+    selectable: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -72,6 +80,13 @@ private fun MangaItem(
             onClick = onClick,
             onLongClick = onLongClick,
         )
+        if (selectable) {
+            Checkbox(
+                checked = selected,
+                onCheckedChange = { onClick() },
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
     }
 }
 
