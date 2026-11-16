@@ -12,10 +12,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.util.fastMap
 import androidx.work.WorkInfo
-import eu.kanade.tachiyomi.data.download.LocalChapterMigrationWorker
 import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
+import eu.kanade.tachiyomi.data.download.LocalChapterMigrationWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import mihon.app.di.appGraph
@@ -155,13 +155,17 @@ object SettingsDownloadScreen : SearchableSettings {
                             migrationState?.progress?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
                             migrationState?.progress?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
                         )
-                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> stringResource(MR.strings.remote_migration_waiting)
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> stringResource(
+                            MR.strings.remote_migration_waiting,
+                        )
                         WorkInfo.State.SUCCEEDED -> stringResource(
                             MR.strings.remote_migration_result,
                             migrationState?.outputData?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
                             migrationState?.outputData?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
                         )
-                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> stringResource(MR.strings.remote_migration_error)
+                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> stringResource(
+                            MR.strings.remote_migration_error,
+                        )
                         else -> stringResource(MR.strings.remote_migration_description)
                     },
                     visible = remoteEnabled,

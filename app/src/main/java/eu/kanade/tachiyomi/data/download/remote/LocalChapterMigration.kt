@@ -40,7 +40,9 @@ class LocalChapterMigration(
         // Refresh first: never use an old offline index as proof of a server copy.
         remote.refresh()
         val candidates = mutableListOf<Candidate>()
-        val knownManga = (mangaRepository.getFavorites() + mangaRepository.getReadMangaNotInLibrary()).distinctBy { it.id }
+        val knownManga = (mangaRepository.getFavorites() + mangaRepository.getReadMangaNotInLibrary()).distinctBy {
+            it.id
+        }
         for (manga in knownManga) {
             currentCoroutineContext().ensureActive()
             val source = sources.get(manga.source) ?: continue
