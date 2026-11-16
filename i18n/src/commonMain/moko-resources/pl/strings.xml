@@ -819,6 +819,12 @@
     <string name="downloading_with_progress">Pobieranie... (%d%%)</string>
 
     <!-- Network library -->
+    <string name="remote_migration_title">Przenieś lokalne rozdziały na serwer</string>
+    <string name="remote_migration_description">Sprawdza rozdziały z biblioteki w skonfigurowanym folderze pobierania. Usuwa lokalną kopię tylko wtedy, gdy wszystkie strony na serwerze są identyczne. Różniące się i niedostępne rozdziały pozostają na urządzeniu. Proces można uruchomić ponownie.</string>
+    <string name="remote_migration_waiting">Oczekiwanie na połączenie…</string>
+    <string name="remote_migration_progress">Sprawdzono: %1$d, przeniesiono: %2$d, pominięto: %3$d</string>
+    <string name="remote_migration_result">Przeniesiono: %1$d, pominięto: %2$d. Naciśnij, aby sprawdzić ponownie.</string>
+    <string name="remote_migration_error">Przerwano. Sprawdź ustawienia serwera i uruchom ponownie.</string>
     <string name="remote_library_title">Biblioteka sieciowa (TrueNAS)</string>
     <string name="remote_library_url">Adres serwera</string>
     <string name="remote_library_token">Token serwera (co najmniej 32 znaki)</string>

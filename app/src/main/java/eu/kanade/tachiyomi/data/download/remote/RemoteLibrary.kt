@@ -300,6 +300,32 @@ class RemoteLibrary(
         stored
     }
 
+    /** A migration must never verify against a different server after settings change. */
+    internal fun configurationId(): String = namespace
+
+    internal suspend fun matchesPages(
+        chapter: RemoteChapter,
+        expected: List<String>,
+        expectedNamespace: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!enabled || namespace != expectedNamespace || chapter.pageCount != expected.size) return@withContext false
+        val serverOrigin = origin
+        val serverToken = preferences.remoteLibraryToken.get().trim()
+        if ((serverOrigin + "\n" + serverToken).encodeUtf8().sha256().hex() != expectedNamespace) {
+            return@withContext false
+        }
+        for ((index, hash) in expected.withIndex()) {
+            currentCoroutineContext().ensureActive()
+            if (!enabled || namespace != expectedNamespace) return@withContext false
+            val target = request("chapters/${chapter.key}/pages/$index", serverOrigin, serverToken).build()
+            val actual = pageClient.newCall(target).awaitSuccess().use { response ->
+                response.body.byteStream().use { hashStream(it) }
+            }
+            if (actual != hash) return@withContext false
+        }
+        enabled && namespace == expectedNamespace
+    }
+
     suspend fun delete(manga: Manga, chapters: List<Chapter>) = withContext(Dispatchers.IO) {
         val keys = chapters.map { key(manga, it) }.toSet()
         val expectedNamespace = namespace

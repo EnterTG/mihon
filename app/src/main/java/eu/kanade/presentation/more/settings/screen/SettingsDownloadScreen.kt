@@ -11,9 +11,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.util.fastMap
+import androidx.work.WorkInfo
 import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
+import eu.kanade.tachiyomi.data.download.LocalChapterMigrationWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import mihon.app.di.appGraph
@@ -78,6 +80,10 @@ object SettingsDownloadScreen : SearchableSettings {
         val scope = rememberCoroutineScope()
         var busy by remember { mutableStateOf(false) }
         var result by remember { mutableStateOf<Boolean?>(null) }
+        val remoteEnabled by downloadPreferences.remoteLibraryEnabled.collectAsState()
+        val migrationState by remember { LocalChapterMigrationWorker.state(context) }.collectAsState(initial = null)
+        val migrationRunning = migrationState?.state == WorkInfo.State.RUNNING ||
+            migrationState?.state == WorkInfo.State.ENQUEUED || migrationState?.state == WorkInfo.State.BLOCKED
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.remote_library_title),
             preferenceItems = listOf(
@@ -139,6 +145,31 @@ object SettingsDownloadScreen : SearchableSettings {
                             }
                         }
                     },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.remote_migration_title),
+                    subtitle = when (migrationState?.state) {
+                        WorkInfo.State.RUNNING -> stringResource(
+                            MR.strings.remote_migration_progress,
+                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.PROCESSED, 0) ?: 0,
+                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
+                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
+                        )
+                        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> stringResource(
+                            MR.strings.remote_migration_waiting,
+                        )
+                        WorkInfo.State.SUCCEEDED -> stringResource(
+                            MR.strings.remote_migration_result,
+                            migrationState?.outputData?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
+                            migrationState?.outputData?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
+                        )
+                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> stringResource(
+                            MR.strings.remote_migration_error,
+                        )
+                        else -> stringResource(MR.strings.remote_migration_description)
+                    },
+                    visible = remoteEnabled,
+                    onClick = { if (!migrationRunning) LocalChapterMigrationWorker.start(context) },
                 ),
                 Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.remote_library_summary)),
             ),

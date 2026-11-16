@@ -1098,6 +1098,12 @@
     <string name="donationCampaign.dismiss">Dismiss</string>
 
     <!-- Network library -->
+    <string name="remote_migration_title">Move local chapters to server</string>
+    <string name="remote_migration_description">Checks library chapters in the configured download folder. Local copies are deleted only when all server pages are identical. Different or unavailable chapters remain on the device. You can run this again.</string>
+    <string name="remote_migration_waiting">Waiting for a connection…</string>
+    <string name="remote_migration_progress">Checked: %1$d, moved: %2$d, skipped: %3$d</string>
+    <string name="remote_migration_result">Moved: %1$d, skipped: %2$d. Tap to check again.</string>
+    <string name="remote_migration_error">Interrupted. Check server settings and try again.</string>
     <string name="remote_library_title">Network library (TrueNAS)</string>
     <string name="remote_library_url">Server URL</string>
     <string name="remote_library_token">Server token (at least 32 characters)</string>
