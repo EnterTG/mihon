@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.util.system.setForegroundSafely
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import mihon.app.di.AppGraph
 import mihon.core.metro.metroGraph
 import tachiyomi.i18n.R
 
@@ -42,7 +43,8 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
     }
 
     override suspend fun doWork(): Result {
-        applicationContext.metroGraph().inject(this)
+        val graph: AppGraph = applicationContext.metroGraph()
+        graph.inject(this)
         return try {
             setForegroundSafely()
             val (migrated, skipped) = migration.run { processed, done, failed ->
