@@ -63,13 +63,19 @@ internal object ExtensionLoader {
 
     private fun getPrivateExtensionDir(context: Context) = File(context.filesDir, "exts")
 
-    fun installPrivateExtensionFile(context: Context, file: File, extension: PackageInfo) {
+    fun installPrivateExtensionFile(
+        context: Context,
+        file: File,
+        extension: PackageInfo,
+        allowDowngrade: Boolean = false,
+    ) {
         check(isPackageAnExtension(extension)) { "${extension.packageName} isn't an extension" }
         val currentExtension = getExtensionPackageInfoFromPkgName(context, extension.packageName)
 
         if (currentExtension != null) {
             check(
-                PackageInfoCompat.getLongVersionCode(extension) >=
+                allowDowngrade ||
+                    PackageInfoCompat.getLongVersionCode(extension) >=
                     PackageInfoCompat.getLongVersionCode(currentExtension),
             ) { "The installed version is newer, and downgrading isn't allowed" }
 
