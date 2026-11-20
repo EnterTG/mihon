@@ -42,6 +42,7 @@ data class ExtensionDetailsScreen(
                     onClickDisableAll = { viewModel.toggleSources(false) },
                     onClickClearCookies = viewModel::clearCookies,
                     onClickUninstall = viewModel::uninstallExtension,
+                    onClickRestoreBackup = viewModel::rollbackExtension,
                     onClickSource = viewModel::toggleSource,
                     onClickIncognito = viewModel::toggleIncognito,
                 )

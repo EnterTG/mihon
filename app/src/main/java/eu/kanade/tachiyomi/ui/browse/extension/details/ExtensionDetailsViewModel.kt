@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.system.LocaleHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +30,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import logcat.LogPriority
@@ -64,8 +67,15 @@ class ExtensionDetailsViewModel(
             combine(
                 subscribeToSources(extension),
                 preferences.incognitoExtensions.changes().map { pkgName in it }.distinctUntilChanged(),
-            ) { sources, isIncognito ->
-                State.Success(extension = extension, isIncognito = isIncognito, sources = sources)
+                flow { emit(extensionManager.hasExtensionBackup(extension.pkgName)) }
+                    .flowOn(Dispatchers.IO),
+            ) { sources, isIncognito, hasBackup ->
+                State.Success(
+                    extension = extension,
+                    isIncognito = isIncognito,
+                    sources = sources,
+                    hasBackup = hasBackup,
+                )
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds), State.Loading)
@@ -118,6 +128,11 @@ class ExtensionDetailsViewModel(
         extensionManager.uninstallExtension(extension)
     }
 
+    fun rollbackExtension() {
+        val extension = successState?.extension ?: return
+        extensionManager.rollbackExtension(extension)
+    }
+
     fun toggleSource(sourceId: Long) {
         toggleSource.await(sourceId)
     }
@@ -145,6 +160,7 @@ class ExtensionDetailsViewModel(
             val extension: Extension.Loaded,
             val isIncognito: Boolean,
             val sources: List<ExtensionSourceItem>,
+            val hasBackup: Boolean = false,
         ) : State
     }
 }

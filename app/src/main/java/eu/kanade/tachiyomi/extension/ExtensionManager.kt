@@ -9,6 +9,7 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.extension.api.ExtensionUpdateNotifier
 import eu.kanade.tachiyomi.extension.model.Extension
 import eu.kanade.tachiyomi.extension.model.InstallStep
+import eu.kanade.tachiyomi.extension.util.ExtensionBackupManager
 import eu.kanade.tachiyomi.extension.util.ExtensionInstallReceiver
 import eu.kanade.tachiyomi.extension.util.ExtensionInstaller
 import eu.kanade.tachiyomi.extension.util.ExtensionLoader
@@ -42,6 +43,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.source.model.StubSource
 import tachiyomi.i18n.MR
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The manager of extensions installed as another apk which extend the available sources. It handles
@@ -61,6 +63,7 @@ class ExtensionManager(
     private val updateExtensionStores: UpdateExtensionStores,
     private val installer: ExtensionInstaller,
     private val extensionUpdateNotifier: ExtensionUpdateNotifier,
+    private val extensionBackupManager: ExtensionBackupManager,
 ) {
 
     private val initialized = CompletableDeferred<Unit>()
@@ -116,6 +119,14 @@ class ExtensionManager(
     }
 
     private var subLanguagesEnabledOnFirstRun = preferences.enabledLanguages.isSet()
+
+    // Packages whose system package is being uninstalled so a backed up version can take over;
+    // the private copy is only restored once the uninstall finishes. Session scoped.
+    private val pendingSharedRollbacks = ConcurrentHashMap.newKeySet<String>()
+
+    // Extensions a broken update was already rolled back for, so a backup that also fails to
+    // load doesn't start a restore loop. Session scoped.
+    private val autoRollbackAttempted = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun getLoadedExtensions(): List<Extension.Loaded> {
         initialized.await()
@@ -312,6 +323,58 @@ class ExtensionManager(
         installer.uninstallApk(extension.pkgName)
     }
 
+    fun hasExtensionBackup(pkgName: String): Boolean {
+        return extensionBackupManager.hasBackup(pkgName)
+    }
+
+    /**
+     * Restores the version of [extension] that was backed up before its last update. A shared
+     * (system) package shadows the restored copy while installed, so for those the user is
+     * asked to uninstall it and the backup is installed once that finishes.
+     */
+    fun rollbackExtension(extension: Extension.Installed) {
+        if (!extensionBackupManager.hasBackup(extension.pkgName)) {
+            scope.launch(Dispatchers.Main) { context.toast(MR.strings.extension_backup_restore_failed) }
+            return
+        }
+        if (extension.isShared) {
+            pendingSharedRollbacks += extension.pkgName
+            scope.launch(Dispatchers.Main) { context.toast(MR.strings.extension_backup_restore_shared) }
+            installer.uninstallApk(extension.pkgName)
+        } else {
+            val restored = extensionBackupManager.restoreExtension(extension.pkgName)
+            scope.launch(Dispatchers.Main) {
+                context.toast(
+                    if (restored) {
+                        MR.strings.extension_backup_restored
+                    } else {
+                        MR.strings.extension_backup_restore_failed
+                    },
+                )
+            }
+        }
+    }
+
+    /**
+     * An update that left the extension unloadable is rolled back to its backed up version on
+     * its own. Shared packages need a system uninstall, which the user has to confirm.
+     */
+    private fun rollbackBrokenUpdate(extension: Extension.NotLoaded) {
+        val broken = extension.reason is Extension.NotLoaded.Reason.Failed ||
+            extension.reason is Extension.NotLoaded.Reason.UnsupportedLibVersion
+        if (!broken) return
+        if (!extensionBackupManager.hasBackup(extension.pkgName)) return
+        if (!autoRollbackAttempted.add(extension.pkgName)) return
+
+        logcat { "Update of ${extension.pkgName} left it unloadable, rolling back to the backed up version" }
+        if (extension.isShared) {
+            pendingSharedRollbacks += extension.pkgName
+            installer.uninstallApk(extension.pkgName)
+        } else {
+            extensionBackupManager.restoreExtension(extension.pkgName)
+        }
+    }
+
     /**
      * Adds the given extension to the list of trusted extensions. It also loads in background the
      * now trusted extensions.
@@ -361,11 +424,21 @@ class ExtensionManager(
             loadedExtensionMapFlow.update { it - extension.pkgName }
             notLoadedExtensionMapFlow.update { it + extension }
             refreshStatuses()
+
+            rollbackBrokenUpdate(extension)
         }
 
         override suspend fun onPackageUninstalled(pkgName: String) = loadMutex.withLock {
             ExtensionLoader.uninstallPrivateExtension(context, pkgName)
             unregisterExtension(pkgName)
+
+            if (pendingSharedRollbacks.remove(pkgName)) {
+                // The system package is gone, so the backed up version can take over. Restoring
+                // only now because the uninstall above deletes the private copy too.
+                extensionBackupManager.restoreExtension(pkgName)
+            } else {
+                extensionBackupManager.deleteBackups(pkgName)
+            }
             updatePendingUpdatesCount()
         }
     }
