@@ -354,6 +354,10 @@
     <string name="ext_malformed_message">This extension is missing information the app needs to load it.</string>
     <string name="ext_load_failed_message">This extension threw an error while loading, so none of its sources are available.</string>
     <string name="ext_uninstall">Uninstall</string>
+    <string name="ext_restore_previous_version">Restore previous version</string>
+    <string name="extension_backup_restored">Previous version of the extension was restored</string>
+    <string name="extension_backup_restore_failed">No working backup of this extension was found</string>
+    <string name="extension_backup_restore_shared">Uninstall the extension to finish restoring its backed up version</string>
     <string name="ext_remove">Remove</string>
     <string name="ext_confirm_remove">Remove Extension?</string>
     <string name="ext_app_info">App info</string>
@@ -433,7 +437,7 @@
     <string name="pref_hold_until_final">Show all tiles together</string>
     <string name="pref_custom_brightness">Custom brightness</string>
     <string name="pref_grayscale">Grayscale</string>
-    <string name="pref_inverted_colors">Inverted</string>
+    <string name="pref_inverted_colors">Inverted colors</string>
     <string name="pref_custom_color_filter">Custom color filter</string>
     <string name="pref_color_filter_mode">Color filter blend mode</string>
     <string name="filter_mode_overlay">Overlay</string>
@@ -903,7 +907,7 @@
     <string name="upcoming_guide">Upcoming Guide</string>
     <string name="upcoming_calendar_next">Next Month</string>
     <string name="upcoming_calendar_prev">Previous Month</string>
-    <string name="pref_filter_upcoming_categories_details">Titles in excluded categories are not shown, even if they are also in any of the included categories.</string>
+    <string name="pref_filter_upcoming_categories_details">Titles in excluded categories are not shown, even if they are also in any included categories.</string>
 
     <!-- History -->
     <string name="recent_manga_time">Ch. %1$s - %2$s</string>

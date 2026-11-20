@@ -257,7 +257,7 @@ class ExtensionManager(
             return
         }
 
-        // Use the source lang as some aren't present in the extension level.
+        // Use the source lang as some aren't present on the extension level.
         val availableLanguages = extensions
             .flatMap(Extension.Available::sources)
             .distinctBy(Extension.Available.Source::lang)
