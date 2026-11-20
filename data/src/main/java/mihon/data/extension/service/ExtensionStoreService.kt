@@ -35,7 +35,7 @@ class ExtensionStoreService(
     suspend fun fetch(indexUrl: String): Result<ExtensionStore> = withContext(Dispatchers.IO) { fetchStore(indexUrl) }
 
     private suspend fun fetchStore(indexUrl: String): Result<ExtensionStore> {
-        var updatedIndexUrl: String = indexUrl
+        var updatedIndexUrl: String = ExtensionStoreUrlResolver.resolve(indexUrl)
         return try {
             val response = network.client.newCall(GET(updatedIndexUrl)).awaitSuccess()
             val store = response.body.source().decompressIfGzipped().use { source ->
