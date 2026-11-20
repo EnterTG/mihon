@@ -41,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap
 class ExtensionInstaller(
     @AppCoroutineScope private val scope: CoroutineScope,
     private val context: Context,
+    private val backupManager: ExtensionBackupManager,
     basePreferences: BasePreferences,
     networkHelper: NetworkHelper,
 ) {
@@ -94,6 +95,9 @@ class ExtensionInstaller(
                     tmpFile.delete()
                     throw Exception("Extension isn't signed with the key of ${extension.store.name}")
                 }
+
+                // Keep a copy of the version being replaced so a broken update can be rolled back
+                backupManager.backupInstalledExtension(extension.pkgName)
 
                 ensureActive()
                 step.value = InstallStep.Installing
