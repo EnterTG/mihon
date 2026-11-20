@@ -72,6 +72,7 @@ fun ExtensionDetailsScreen(
     onClickDisableAll: () -> Unit,
     onClickClearCookies: () -> Unit,
     onClickUninstall: () -> Unit,
+    onClickRestoreBackup: () -> Unit,
     onClickSource: (sourceId: Long) -> Unit,
     onClickIncognito: (Boolean) -> Unit,
 ) {
@@ -116,6 +117,7 @@ fun ExtensionDetailsScreen(
             incognitoMode = state.isIncognito,
             onClickSourcePreferences = onClickSourcePreferences,
             onClickUninstall = onClickUninstall,
+            onClickRestoreBackup = onClickRestoreBackup.takeIf { state.hasBackup },
             onClickSource = onClickSource,
             onClickIncognito = onClickIncognito,
         )
@@ -131,6 +133,7 @@ private fun ExtensionDetails(
     incognitoMode: Boolean,
     onClickSourcePreferences: (sourceId: Long) -> Unit,
     onClickUninstall: () -> Unit,
+    onClickRestoreBackup: (() -> Unit)?,
     onClickSource: (sourceId: Long) -> Unit,
     onClickIncognito: (Boolean) -> Unit,
 ) {
@@ -152,6 +155,7 @@ private fun ExtensionDetails(
                 extension = extension,
                 extIncognitoMode = incognitoMode,
                 onClickUninstall = onClickUninstall,
+                onClickRestoreBackup = onClickRestoreBackup,
                 onClickAppInfo = {
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", extension.pkgName, null)
@@ -197,6 +201,7 @@ private fun DetailsHeader(
     onClickStore: (() -> Unit)?,
     onClickContentWarning: () -> Unit,
     onClickUninstall: () -> Unit,
+    onClickRestoreBackup: (() -> Unit)?,
     onClickAppInfo: (() -> Unit)?,
     onExtIncognitoChange: (Boolean) -> Unit,
 ) {
@@ -333,6 +338,15 @@ private fun DetailsHeader(
                 onClick = onClickUninstall,
             ) {
                 Text(stringResource(MR.strings.ext_uninstall))
+            }
+
+            if (onClickRestoreBackup != null) {
+                OutlinedButton(
+                    modifier = Modifier.weight(1f),
+                    onClick = onClickRestoreBackup,
+                ) {
+                    Text(stringResource(MR.strings.ext_restore_previous_version))
+                }
             }
 
             if (onClickAppInfo != null) {
