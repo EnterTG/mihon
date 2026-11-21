@@ -1,5 +1,8 @@
 package eu.kanade.presentation.more.settings.screen
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.collectAsState
@@ -16,6 +19,7 @@ import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
 import eu.kanade.tachiyomi.data.download.LocalChapterMigrationWorker
+import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import mihon.app.di.appGraph
@@ -84,6 +88,20 @@ object SettingsDownloadScreen : SearchableSettings {
         val migrationState by remember { LocalChapterMigrationWorker.state(context) }.collectAsState(initial = null)
         val migrationRunning = migrationState?.state == WorkInfo.State.RUNNING ||
             migrationState?.state == WorkInfo.State.ENQUEUED || migrationState?.state == WorkInfo.State.BLOCKED
+        val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try {
+                    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    context.contentResolver.takePersistableUriPermission(uri, flags)
+                    LocalChapterMigrationWorker.start(context, uri.toString())
+                } catch (_: SecurityException) {
+                    context.toast(MR.strings.file_picker_uri_permission_unsupported)
+                }
+            }
+        }
+        val migrationData = migrationState?.let {
+            if (it.state.isFinished) it.outputData else it.progress
+        }
         return Preference.PreferenceGroup(
             title = stringResource(MR.strings.remote_library_title),
             preferenceItems = listOf(
@@ -149,19 +167,15 @@ object SettingsDownloadScreen : SearchableSettings {
                 Preference.PreferenceItem.TextPreference(
                     title = stringResource(MR.strings.remote_migration_title),
                     subtitle = when (migrationState?.state) {
-                        WorkInfo.State.RUNNING -> stringResource(
-                            MR.strings.remote_migration_progress,
-                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.PROCESSED, 0) ?: 0,
-                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
-                            migrationState?.progress?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
+                        WorkInfo.State.RUNNING, WorkInfo.State.SUCCEEDED -> stringResource(
+                            MR.strings.remote_migration_result,
+                            migrationData?.getInt(LocalChapterMigrationWorker.FOUND, 0) ?: 0,
+                            migrationData?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
+                            migrationData?.getInt(LocalChapterMigrationWorker.UNMATCHED, 0) ?: 0,
+                            migrationData?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
                         )
                         WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> stringResource(
                             MR.strings.remote_migration_waiting,
-                        )
-                        WorkInfo.State.SUCCEEDED -> stringResource(
-                            MR.strings.remote_migration_result,
-                            migrationState?.outputData?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
-                            migrationState?.outputData?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
                         )
                         WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> stringResource(
                             MR.strings.remote_migration_error,
@@ -170,6 +184,11 @@ object SettingsDownloadScreen : SearchableSettings {
                     },
                     visible = remoteEnabled,
                     onClick = { if (!migrationRunning) LocalChapterMigrationWorker.start(context) },
+                ),
+                Preference.PreferenceItem.TextPreference(
+                    title = stringResource(MR.strings.remote_migration_choose_folder),
+                    visible = remoteEnabled,
+                    onClick = { if (!migrationRunning) folderPicker.launch(null) },
                 ),
                 Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.remote_library_summary)),
             ),

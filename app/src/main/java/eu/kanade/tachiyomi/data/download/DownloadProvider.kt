@@ -197,10 +197,13 @@ class DownloadProvider(
      *
      * @param source the source to query.
      */
-    fun getSourceDirName(source: Source): String {
+    fun getSourceDirName(
+        source: Source,
+        disallowNonAscii: Boolean = libraryPreferences.disallowNonAsciiFilenames.get(),
+    ): String {
         return DiskUtil.buildValidFilename(
             source.toString(),
-            disallowNonAscii = libraryPreferences.disallowNonAsciiFilenames.get(),
+            disallowNonAscii = disallowNonAscii,
         )
     }
 
@@ -209,10 +212,13 @@ class DownloadProvider(
      *
      * @param mangaTitle the title of the manga to query.
      */
-    fun getMangaDirName(mangaTitle: String): String {
+    fun getMangaDirName(
+        mangaTitle: String,
+        disallowNonAscii: Boolean = libraryPreferences.disallowNonAsciiFilenames.get(),
+    ): String {
         return DiskUtil.buildValidFilename(
             mangaTitle,
-            disallowNonAscii = libraryPreferences.disallowNonAsciiFilenames.get(),
+            disallowNonAscii = disallowNonAscii,
         )
     }
 

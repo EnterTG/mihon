@@ -58,6 +58,12 @@ class MangaRepositoryImpl(
             .subscribeToOneOrNull()
     }
 
+    override suspend fun getMangaWithChapters(): List<Manga> {
+        return database.mangaQueries
+            .getMangaWithChapters(MangaMapper::mapManga)
+            .awaitAsList()
+    }
+
     override suspend fun getFavorites(): List<Manga> {
         return database.mangaQueries
             .getFavorites(MangaMapper::mapManga)

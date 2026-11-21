@@ -1,11 +1,17 @@
 package eu.kanade.tachiyomi.data.download.remote
 
+import com.hippo.unifile.UniFile
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class LocalChapterMigrationTest {
     @Test
@@ -64,6 +70,26 @@ class LocalChapterMigrationTest {
             }
             assertFalse(deleted)
         }
+    }
+
+    @Test
+    fun `CBZ metadata does not stop page verification`() = runBlocking {
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { zip ->
+            for ((name, content) in listOf("10.jpg" to "last", "ComicInfo.xml" to "<ComicInfo/>", "2.jpg" to "first")) {
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        val file = mockk<UniFile>()
+        every { file.isDirectory } returns false
+        every { file.isFile } returns true
+        every { file.name } returns "chapter.cbz"
+        every { file.openInputStream() } answers { bytes.toByteArray().inputStream() }
+
+        val expected = listOf("first", "last").map { hashStream(it.byteInputStream()) }
+        assertEquals(expected, localPageHashes(file))
     }
 
     @Test

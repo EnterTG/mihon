@@ -17,6 +17,8 @@ interface MangaRepository {
 
     fun getMangaByUrlAndSourceIdAsFlow(url: String, sourceId: Long): Flow<Manga?>
 
+    suspend fun getMangaWithChapters(): List<Manga>
+
     suspend fun getFavorites(): List<Manga>
 
     suspend fun getReadMangaNotInLibrary(): List<Manga>
