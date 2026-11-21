@@ -115,8 +115,12 @@ class LocalChapterMigration(
         val nested = children.filter {
             it.isDirectory && it.name?.lowercase() in setOf("downloads", "download")
         }
-        val sourceDirs = if (nested.isEmpty()) children else nested.flatMap {
-            checkNotNull(it.listFiles()) { "Cannot read download folder" }.toList()
+        val sourceDirs = if (nested.isEmpty()) {
+            children.toList()
+        } else {
+            nested.flatMap {
+                checkNotNull(it.listFiles()) { "Cannot read download folder" }.toList()
+            }
         }
         for (source in sourceDirs.filter { it.isDirectory }) {
             val sourceName = source.name?.lowercase() ?: continue
