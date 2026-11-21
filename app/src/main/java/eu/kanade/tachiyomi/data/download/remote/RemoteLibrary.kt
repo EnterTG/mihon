@@ -333,7 +333,7 @@ class RemoteLibrary(
     ): LocalChapterSnapshot {
         return ZipOutputStream(file.outputStream().buffered()).use { zip ->
             zip.setLevel(0)
-            val snapshot = readLocalChapter(local, zip)
+            val snapshot = readLocalChapter(local, context.cacheDir, zip)
             val metadata = RemoteChapter(
                 key = key(manga, chapter),
                 sourceId = manga.source.toString(),
