@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.data.download
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
+import androidx.core.net.toUri
 import androidx.lifecycle.asFlow
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -47,24 +48,36 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
         graph.inject(this)
         return try {
             setForegroundSafely()
-            val (migrated, skipped) = migration.run { processed, done, failed ->
-                setProgress(workDataOf(PROCESSED to processed, MIGRATED to done, SKIPPED to failed))
+            val counts = migration.run(inputData.getString(FOLDER)?.toUri()) {
+                setProgress(it.toData())
             }
-            Result.success(workDataOf(MIGRATED to migrated, SKIPPED to skipped))
+            Result.success(counts.toData())
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Result.failure()
         }
     }
 
+    private fun LocalChapterMigration.Counts.toData() = workDataOf(
+        FOUND to found,
+        MIGRATED to migrated,
+        SKIPPED to skipped,
+        UNMATCHED to unmatched,
+    )
+
     companion object {
         private const val NAME = "LocalChapterMigration"
-        const val PROCESSED = "processed"
+        private const val FOLDER = "folder"
+        private const val REQUESTED_AT = "requested_at:"
+        const val FOUND = "found"
+        const val UNMATCHED = "unmatched"
         const val MIGRATED = "migrated"
         const val SKIPPED = "skipped"
 
-        fun start(context: Context) {
+        fun start(context: Context, folder: String? = null) {
             val request = OneTimeWorkRequestBuilder<LocalChapterMigrationWorker>()
+                .setInputData(workDataOf(FOLDER to folder))
+                .addTag(REQUESTED_AT + System.currentTimeMillis())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(NAME, ExistingWorkPolicy.KEEP, request)
@@ -73,6 +86,11 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
         fun state(context: Context): Flow<WorkInfo?> = WorkManager.getInstance(context)
             .getWorkInfosForUniqueWorkLiveData(NAME)
             .asFlow()
-            .map { infos -> infos.firstOrNull { !it.state.isFinished } ?: infos.lastOrNull() }
+            .map { infos ->
+                infos.firstOrNull { !it.state.isFinished } ?: infos.maxByOrNull { info ->
+                    info.tags.firstOrNull { it.startsWith(REQUESTED_AT) }
+                        ?.removePrefix(REQUESTED_AT)?.toLongOrNull() ?: 0L
+                }
+            }
     }
 }
