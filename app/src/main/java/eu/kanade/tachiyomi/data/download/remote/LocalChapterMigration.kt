@@ -28,8 +28,10 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
+import java.util.zip.CRC32
+import java.util.zip.CheckedInputStream
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 /** Migrates only files that can be associated unambiguously with a chapter in the database. */
@@ -66,7 +68,7 @@ class LocalChapterMigration(
 
         val filesByTitle = files.groupBy { it.source to it.title }
         val matches = mutableMapOf<String, MutableList<Candidate>>()
-        val readingWindowIds = mutableSetOf<Long>()
+        val readingOrder = mutableMapOf<Long, Pair<List<Chapter>, Long?>>()
         for (manga in mangaRepository.getMangaWithChapters()) {
             currentCoroutineContext().ensureActive()
             val source = sources.getOrStub(manga.source)
@@ -86,7 +88,7 @@ class LocalChapterMigration(
                 .filter { it.readAt != null }
                 .maxByOrNull { checkNotNull(it.readAt) }
                 ?.chapterId
-            readingWindowIds += localRetentionWindow(allChapters, lastRead)
+            readingOrder[manga.id] = allChapters to lastRead
             for (chapter in allChapters) {
                 val names = provider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
                 for (name in names.map { it.lowercase() }.distinct()) {
@@ -98,6 +100,10 @@ class LocalChapterMigration(
             }
         }
         val candidates = matches.values.mapNotNull { it.singleOrNull() }
+        val readingWindowIds = candidates.groupBy { it.manga.id }.flatMapTo(mutableSetOf()) { (mangaId, local) ->
+            val (ordered, lastRead) = readingOrder.getValue(mangaId)
+            localRetentionWindow(ordered, lastRead, local.mapTo(mutableSetOf()) { it.chapter.id })
+        }
         val retained = candidates.filter { it.chapter.id in readingWindowIds }.distinctBy { it.chapter.id }.toSet()
         var counts = Counts(found = files.size, unmatched = files.size - candidates.size, kept = retained.size)
         progress(counts)
@@ -113,7 +119,7 @@ class LocalChapterMigration(
             try {
                 val snapshot = remote.prepareLocalImport(item.manga, item.chapter, item.file, archive)
                 migrateVerifiedChapter(
-                    readLocal = { readLocalChapter(item.file).signature },
+                    readLocal = { readLocalChapter(item.file, context.cacheDir).signature },
                     initialSnapshot = snapshot.signature,
                     verifyRemote = { remote.importLocal(item.manga, item.chapter, archive, snapshot, namespace) },
                     configurationUnchanged = { remote.enabled && remote.configurationId() == namespace },
@@ -166,12 +172,15 @@ class LocalChapterMigration(
     }
 }
 
-internal fun localRetentionWindow(chapters: List<Chapter>, lastReadId: Long?): Set<Long> {
+internal fun localRetentionWindow(chapters: List<Chapter>, lastReadId: Long?, downloadedIds: Set<Long>): Set<Long> {
     if (chapters.isEmpty()) return emptySet()
     val position = chapters.indexOfFirst { it.id == lastReadId }.takeIf { it >= 0 }
         ?: chapters.indexOfFirst { !it.read }.takeIf { it >= 0 }
         ?: chapters.lastIndex
-    return remoteReadingWindow(chapters, position).mapTo(mutableSetOf()) { it.id }
+    val available = chapters.filter { it.id in downloadedIds }
+    val earlierDownloads = chapters.take(position).count { it.id in downloadedIds }
+    val start = (earlierDownloads - 1).coerceIn(0, (available.size - 4).coerceAtLeast(0))
+    return available.drop(start).take(4).mapTo(mutableSetOf()) { it.id }
 }
 
 /** No local deletion is attempted until both copies and the server configuration have been checked. */
@@ -201,7 +210,11 @@ internal data class LocalChapterSnapshot(val pages: List<ImportedPage>, val comi
 }
 
 /** Read downloaded pages in reader order and optionally write them to the import archive. */
-internal suspend fun readLocalChapter(file: UniFile, archive: ZipOutputStream? = null): LocalChapterSnapshot {
+internal suspend fun readLocalChapter(
+    file: UniFile,
+    cacheDir: File,
+    archive: ZipOutputStream? = null,
+): LocalChapterSnapshot {
     val pages = mutableListOf<Pair<String, ImportedPage>>()
     var comicInfo: String? = null
     var total = 0L
@@ -236,21 +249,26 @@ internal suspend fun readLocalChapter(file: UniFile, archive: ZipOutputStream? =
         }
     } else {
         check(file.isFile && file.name?.endsWith(".cbz", ignoreCase = true) == true)
-        file.openInputStream().use { input ->
-            ZipInputStream(input).use { zip ->
-                while (true) {
-                    val entry = zip.nextEntry ?: break
-                    if (!entry.isDirectory) {
-                        val name = entry.name
-                        check(
-                            name == COMIC_INFO_FILE || name == ".nomedia" ||
-                                name.substringAfterLast('.').lowercase() in IMAGE_EXTENSIONS,
-                        )
-                        readEntry(name, zip)
+        // Mihon writes stored ZIP entries with data descriptors. Their sizes are in the central directory.
+        val copy = File.createTempFile("local_chapter_", ".cbz", cacheDir)
+        try {
+            file.openInputStream().use { input -> copy.outputStream().use { input.copyTo(it) } }
+            ZipFile(copy).use { zip ->
+                for (entry in zip.entries()) {
+                    if (entry.isDirectory) continue
+                    val name = entry.name
+                    check(
+                        name == COMIC_INFO_FILE || name == ".nomedia" ||
+                            name.substringAfterLast('.').lowercase() in IMAGE_EXTENSIONS,
+                    )
+                    CheckedInputStream(zip.getInputStream(entry), CRC32()).use { input ->
+                        readEntry(name, input)
+                        check(input.checksum.value == entry.crc) { "Invalid CBZ entry checksum" }
                     }
-                    zip.closeEntry()
                 }
             }
+        } finally {
+            copy.delete()
         }
         pages.sortWith { a, b -> a.first.compareToCaseInsensitiveNaturalOrder(b.first) }
     }

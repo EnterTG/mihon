@@ -9,10 +9,10 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.io.TempDir
 import tachiyomi.domain.chapter.model.Chapter
-import java.io.ByteArrayOutputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import java.io.File
+import java.util.Base64
 
 class LocalChapterMigrationTest {
     @Test
@@ -74,23 +74,26 @@ class LocalChapterMigrationTest {
     }
 
     @Test
-    fun `CBZ metadata does not stop page verification`() = runBlocking {
-        val bytes = ByteArrayOutputStream()
-        ZipOutputStream(bytes).use { zip ->
-            for ((name, content) in listOf("10.jpg" to "last", "ComicInfo.xml" to "<ComicInfo/>", "2.jpg" to "first")) {
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(content.toByteArray())
-                zip.closeEntry()
-            }
-        }
+    fun `Mihon stored CBZ keeps page order and metadata`(@TempDir cache: File) = runBlocking {
+        // ZIP_STORED entries written to a non-seekable stream, as in Mihon downloads.
+        val bytes = Base64.getMimeDecoder().decode(
+            """
+            UEsDBBQACAAAAHOrdV0AAAAAAAAAAAAAAAAGAAAAMTAuanBnbGFzdFBLBwigqdtKBAAAAAQAAABQSwMEFAAIAAAAc6t1XQAA
+            AAAAAAAAAAAAAA0AAABDb21pY0luZm8ueG1sPENvbWljSW5mby8+UEsHCG6FiF0MAAAADAAAAFBLAwQUAAgAAABzq3VdAAAA
+            AAAAAAAAAAAABQAAADIuanBnZmlyc3RQSwcIV+5xkgUAAAAFAAAAUEsBAhQAFAAIAAAAc6t1XaCp20oEAAAABAAAAAYAAAAA
+            AAAAAAAAAIABAAAAADEwLmpwZ1BLAQIUABQACAAAAHOrdV1uhYhdDAAAAAwAAAANAAAAAAAAAAAAAACAATgAAABDb21pY0lu
+            Zm8ueG1sUEsBAhQAFAAIAAAAc6t1XVfucZIFAAAABQAAAAUAAAAAAAAAAAAAAIABfwAAADIuanBnUEsFBgAAAAADAAMAogAA
+            ALcAAAAAAA==
+            """.trimIndent(),
+        )
         val file = mockk<UniFile>()
         every { file.isDirectory } returns false
         every { file.isFile } returns true
         every { file.name } returns "chapter.cbz"
-        every { file.openInputStream() } answers { bytes.toByteArray().inputStream() }
+        every { file.openInputStream() } answers { bytes.inputStream() }
 
         val expected = listOf("first", "last").map { hashStream(it.byteInputStream()) }
-        val snapshot = readLocalChapter(file)
+        val snapshot = readLocalChapter(file, cache)
         assertEquals(expected, snapshot.pages.map { it.sha256 })
         assertEquals(hashStream("<ComicInfo/>".byteInputStream()), snapshot.comicInfoSha256)
     }
@@ -98,9 +101,12 @@ class LocalChapterMigrationTest {
     @Test
     fun `local retention keeps the reading window for each title`() {
         val chapters = (1L..10L).map { Chapter.create().copy(id = it, read = it < 5) }
-        assertEquals(setOf(4L, 5L, 6L, 7L), localRetentionWindow(chapters, null))
-        assertEquals(setOf(6L, 7L, 8L, 9L), localRetentionWindow(chapters, 7L))
-        assertEquals(setOf(9L, 10L), localRetentionWindow(chapters, 10L))
+        val all = (1L..10L).toSet()
+        assertEquals(setOf(4L, 5L, 6L, 7L), localRetentionWindow(chapters, null, all))
+        assertEquals(setOf(6L, 7L, 8L, 9L), localRetentionWindow(chapters, 7L, all))
+        assertEquals(setOf(7L, 8L, 9L, 10L), localRetentionWindow(chapters, 10L, all))
+        assertEquals(setOf(6L, 7L, 8L, 9L), localRetentionWindow(chapters, 1L, (6L..10L).toSet()))
+        assertEquals(setOf(9L, 10L), localRetentionWindow(chapters, null, setOf(9L, 10L)))
     }
 
     @Test
