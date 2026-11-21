@@ -3,10 +3,12 @@ package eu.kanade.tachiyomi.data.download.remote
 import android.content.Context
 import android.util.AtomicFile
 import androidx.core.util.writeBytes
+import com.hippo.unifile.UniFile
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.domain.chapter.model.toSChapter
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.CancellationException
@@ -31,6 +33,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.ByteString.Companion.encodeUtf8
 import tachiyomi.domain.chapter.model.Chapter
@@ -40,6 +43,8 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /** Image downloads go directly from the origin to the NAS; only this reader window reaches Android. */
 @Inject
@@ -303,27 +308,82 @@ class RemoteLibrary(
     /** A migration must never verify against a different server after settings change. */
     internal fun configurationId(): String = namespace
 
-    internal suspend fun matchesPages(
-        chapter: RemoteChapter,
-        expected: List<String>,
-        expectedNamespace: String,
-    ): Boolean = withContext(Dispatchers.IO) {
-        if (!enabled || namespace != expectedNamespace || chapter.pageCount != expected.size) return@withContext false
+    internal suspend fun checkImportSupport(expectedNamespace: String) {
+        val target = importRequest("imports", expectedNamespace).build()
+        pageClient.newCall(target).await().use { response ->
+            if (response.code == 404 || response.code == 501) throw LocalImportUnsupported()
+            check(response.isSuccessful) { "Cannot connect to the import service" }
+        }
+    }
+
+    private fun importRequest(path: String, expectedNamespace: String): Request.Builder {
         val serverOrigin = origin
         val serverToken = preferences.remoteLibraryToken.get().trim()
-        if ((serverOrigin + "\n" + serverToken).encodeUtf8().sha256().hex() != expectedNamespace) {
-            return@withContext false
+        check(enabled && (serverOrigin + "\n" + serverToken).encodeUtf8().sha256().hex() == expectedNamespace) {
+            "Network library configuration changed"
         }
-        for ((index, hash) in expected.withIndex()) {
-            currentCoroutineContext().ensureActive()
-            if (!enabled || namespace != expectedNamespace) return@withContext false
-            val target = request("chapters/${chapter.key}/pages/$index", serverOrigin, serverToken).build()
-            val actual = pageClient.newCall(target).awaitSuccess().use { response ->
-                response.body.byteStream().use { hashStream(it) }
-            }
-            if (actual != hash) return@withContext false
+        return request(path, serverOrigin, serverToken)
+    }
+
+    internal suspend fun prepareLocalImport(
+        manga: Manga,
+        chapter: Chapter,
+        local: UniFile,
+        file: File,
+    ): LocalChapterSnapshot {
+        return ZipOutputStream(file.outputStream().buffered()).use { zip ->
+            zip.setLevel(0)
+            val snapshot = readLocalChapter(local, zip)
+            val metadata = RemoteChapter(
+                key = key(manga, chapter),
+                sourceId = manga.source.toString(),
+                mangaUrl = manga.url,
+                mangaTitle = manga.title,
+                chapterUrl = chapter.url,
+                chapterName = chapter.name,
+                pageCount = snapshot.pages.size,
+            )
+            zip.putNextEntry(ZipEntry("manifest.json"))
+            val manifest = LocalImportManifest(metadata, snapshot.pages, snapshot.comicInfoSha256)
+            zip.write(json.encodeToString(manifest).toByteArray())
+            zip.closeEntry()
+            snapshot
         }
-        enabled && namespace == expectedNamespace
+    }
+
+    internal suspend fun importLocal(
+        manga: Manga,
+        chapter: Chapter,
+        file: File,
+        snapshot: LocalChapterSnapshot,
+        expectedNamespace: String,
+    ): Boolean {
+        val key = key(manga, chapter)
+        val request = importRequest("chapters/$key/import", expectedNamespace)
+            .put(file.asRequestBody("application/zip".toMediaType()))
+            .build()
+        val receipt = client.newCall(request).awaitSuccess().use {
+            json.decodeFromString<LocalImportReceipt>(it.body.string())
+        }
+        val hashes = snapshot.pages.map { it.sha256 }
+        val variant = (hashes.joinToString("") + snapshot.comicInfoSha256.orEmpty()).encodeUtf8().sha256().hex()
+        val variantUrl = "${manga.url}#yomira-local-import:$variant"
+        val variantKey = "${manga.source}\n$variantUrl\n${chapter.url}".encodeUtf8().sha256().hex()
+        val stored = receipt.chapter
+        val validKey = (stored.key == key && stored.mangaUrl == manga.url) ||
+            (stored.key == variantKey && stored.mangaUrl == variantUrl)
+        if (!validKey || stored.sourceId != manga.source.toString() || stored.chapterUrl != chapter.url ||
+            stored.pageCount != hashes.size || receipt.pageHashes != hashes ||
+            receipt.comicInfoSha256 != snapshot.comicInfoSha256
+        ) {
+            return false
+        }
+        catalogLock.withLock {
+            check(enabled && namespace == expectedNamespace) { "Network library configuration changed" }
+            val existing = catalog.takeIf { it.namespace == expectedNamespace }?.chapters.orEmpty()
+            saveCatalog(Catalog(expectedNamespace, existing.filterNot { it.key == stored.key } + stored))
+        }
+        return true
     }
 
     suspend fun delete(manga: Manga, chapters: List<Chapter>) = withContext(Dispatchers.IO) {
@@ -427,4 +487,20 @@ private data class RemoteHistoryEvent(
     val readDuration: Long,
     val lastPageRead: Int,
     val read: Boolean,
+)
+
+internal class LocalImportUnsupported : IOException()
+
+@Serializable
+private data class LocalImportManifest(
+    val metadata: RemoteChapter,
+    val pages: List<ImportedPage>,
+    val comicInfoSha256: String?,
+)
+
+@Serializable
+private data class LocalImportReceipt(
+    val chapter: RemoteChapter,
+    val pageHashes: List<String>,
+    val comicInfoSha256: String?,
 )

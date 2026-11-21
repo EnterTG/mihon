@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import tachiyomi.domain.chapter.model.Chapter
 import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -89,7 +90,17 @@ class LocalChapterMigrationTest {
         every { file.openInputStream() } answers { bytes.toByteArray().inputStream() }
 
         val expected = listOf("first", "last").map { hashStream(it.byteInputStream()) }
-        assertEquals(expected, localPageHashes(file))
+        val snapshot = readLocalChapter(file)
+        assertEquals(expected, snapshot.pages.map { it.sha256 })
+        assertEquals(hashStream("<ComicInfo/>".byteInputStream()), snapshot.comicInfoSha256)
+    }
+
+    @Test
+    fun `local retention keeps the reading window for each title`() {
+        val chapters = (1L..10L).map { Chapter.create().copy(id = it, read = it < 5) }
+        assertEquals(setOf(4L, 5L, 6L, 7L), localRetentionWindow(chapters, null))
+        assertEquals(setOf(6L, 7L, 8L, 9L), localRetentionWindow(chapters, 7L))
+        assertEquals(setOf(9L, 10L), localRetentionWindow(chapters, 10L))
     }
 
     @Test

@@ -7,31 +7,37 @@ import dev.zacsweers.metro.Inject
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.Downloader
-import eu.kanade.tachiyomi.source.Source
-import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.util.lang.compareToCaseInsensitiveNaturalOrder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.metadata.comicinfo.COMIC_INFO_FILE
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.repository.ChapterRepository
+import tachiyomi.domain.chapter.service.getChapterSort
+import tachiyomi.domain.history.repository.HistoryRepository
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.storage.service.StorageManager
+import java.io.File
 import java.io.InputStream
+import java.io.OutputStream
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 /** Migrates only files that can be associated unambiguously with a chapter in the database. */
 @Inject
 class LocalChapterMigration(
     private val mangaRepository: MangaRepository,
     private val chapters: ChapterRepository,
+    private val history: HistoryRepository,
     private val context: Context,
     private val storage: StorageManager,
     private val sources: SourceManager,
@@ -39,9 +45,15 @@ class LocalChapterMigration(
     private val cache: DownloadCache,
     private val remote: RemoteLibrary,
 ) {
-    private data class Candidate(val manga: Manga, val chapter: Chapter, val source: Source, val file: UniFile)
+    private data class Candidate(val manga: Manga, val chapter: Chapter, val file: UniFile)
 
-    data class Counts(val found: Int, val migrated: Int = 0, val skipped: Int = 0, val unmatched: Int = 0)
+    data class Counts(
+        val found: Int,
+        val migrated: Int = 0,
+        val skipped: Int = 0,
+        val unmatched: Int = 0,
+        val kept: Int = 0,
+    )
 
     suspend fun run(folder: Uri?, progress: suspend (Counts) -> Unit): Counts = withContext(Dispatchers.IO) {
         check(remote.enabled) { "Network library is disabled" }
@@ -54,6 +66,7 @@ class LocalChapterMigration(
 
         val filesByTitle = files.groupBy { it.source to it.title }
         val matches = mutableMapOf<String, MutableList<Candidate>>()
+        val readingWindowIds = mutableSetOf<Long>()
         for (manga in mangaRepository.getMangaWithChapters()) {
             currentCoroutineContext().ensureActive()
             val source = sources.getOrStub(manga.source)
@@ -67,30 +80,42 @@ class LocalChapterMigration(
             }
             val mangaFiles = titles.flatMap { filesByTitle[it].orEmpty() }.groupBy { it.name }
             if (mangaFiles.isEmpty()) continue
-            for (chapter in chapters.getChapterByMangaId(manga.id)) {
+            val allChapters = chapters.getChapterByMangaId(manga.id)
+                .sortedWith(getChapterSort(manga, sortDescending = false))
+            val lastRead = history.getHistoryByMangaId(manga.id)
+                .filter { it.readAt != null }
+                .maxByOrNull { checkNotNull(it.readAt) }
+                ?.chapterId
+            readingWindowIds += localRetentionWindow(allChapters, lastRead)
+            for (chapter in allChapters) {
                 val names = provider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
                 for (name in names.map { it.lowercase() }.distinct()) {
                     for (local in mangaFiles[name].orEmpty()) {
                         matches.getOrPut(local.file.uri.toString(), ::mutableListOf)
-                            .add(Candidate(manga, chapter, source, local.file))
+                            .add(Candidate(manga, chapter, local.file))
                     }
                 }
             }
         }
         val candidates = matches.values.mapNotNull { it.singleOrNull() }
-        var counts = Counts(found = files.size, unmatched = files.size - candidates.size)
+        val retained = candidates.filter { it.chapter.id in readingWindowIds }.distinctBy { it.chapter.id }.toSet()
+        var counts = Counts(found = files.size, unmatched = files.size - candidates.size, kept = retained.size)
         progress(counts)
-        if (candidates.isNotEmpty()) remote.refresh()
-        for (item in candidates) {
+        val imports = candidates.filterNot { it in retained }
+        if (imports.isEmpty()) return@withContext counts
+        remote.checkImportSupport(namespace)
+
+        // Unique WorkManager work uses one staging file. Reuse its path after a process restart.
+        val archive = File(context.cacheDir, "local_chapter_import.zip")
+        for (item in imports) {
             currentCoroutineContext().ensureActive()
             check(remote.enabled && remote.configurationId() == namespace) { "Network library configuration changed" }
             try {
+                val snapshot = remote.prepareLocalImport(item.manga, item.chapter, item.file, archive)
                 migrateVerifiedChapter(
-                    readLocal = { localPageHashes(item.file) },
-                    verifyRemote = { hashes ->
-                        val stored = remote.ensure(item.manga, item.chapter, item.source as? HttpSource)
-                        stored.pageCount == hashes.size && remote.matchesPages(stored, hashes, namespace)
-                    },
+                    readLocal = { readLocalChapter(item.file).signature },
+                    initialSnapshot = snapshot.signature,
+                    verifyRemote = { remote.importLocal(item.manga, item.chapter, archive, snapshot, namespace) },
                     configurationUnchanged = { remote.enabled && remote.configurationId() == namespace },
                     deleteLocal = { item.file.delete() },
                 )
@@ -100,6 +125,8 @@ class LocalChapterMigration(
                 counts = counts.copy(skipped = counts.skipped + 1)
                 progress(counts)
                 continue
+            } finally {
+                archive.delete()
             }
             if (folder == null) cache.removeChapter(item.chapter, item.manga)
             progress(counts)
@@ -139,57 +166,101 @@ class LocalChapterMigration(
     }
 }
 
+internal fun localRetentionWindow(chapters: List<Chapter>, lastReadId: Long?): Set<Long> {
+    if (chapters.isEmpty()) return emptySet()
+    val position = chapters.indexOfFirst { it.id == lastReadId }.takeIf { it >= 0 }
+        ?: chapters.indexOfFirst { !it.read }.takeIf { it >= 0 }
+        ?: chapters.lastIndex
+    return remoteReadingWindow(chapters, position).mapTo(mutableSetOf()) { it.id }
+}
+
 /** No local deletion is attempted until both copies and the server configuration have been checked. */
 internal suspend fun migrateVerifiedChapter(
     readLocal: suspend () -> List<String>,
     verifyRemote: suspend (List<String>) -> Boolean,
     configurationUnchanged: () -> Boolean,
     deleteLocal: () -> Boolean,
+    initialSnapshot: List<String>? = null,
 ) {
     check(configurationUnchanged()) { "Network library configuration changed" }
-    val before = readLocal()
+    val before = initialSnapshot ?: readLocal()
     check(before.isNotEmpty()) { "No pages" }
-    check(verifyRemote(before)) { "Server pages differ or are unavailable" }
+    check(verifyRemote(before)) { "Server copy could not be verified" }
     check(before == readLocal()) { "Local chapter changed during migration" }
     check(configurationUnchanged()) { "Network library configuration changed" }
     currentCoroutineContext().ensureActive()
     check(deleteLocal()) { "Could not delete local chapter" }
 }
 
-/** Return ordered page digests, refusing to delete directories or archives with unknown content. */
-internal suspend fun localPageHashes(file: UniFile): List<String> {
-    val pages = if (file.isDirectory) {
-        val files = file.listFiles().orEmpty().filterNot {
-            it.isFile && (it.name == COMIC_INFO_FILE || it.name == ".nomedia")
+@Serializable
+internal data class ImportedPage(val entry: String, val sha256: String)
+
+internal data class LocalChapterSnapshot(val pages: List<ImportedPage>, val comicInfoSha256: String?) {
+    val signature: List<String>
+        get() = pages.map { it.sha256 } + listOfNotNull(comicInfoSha256)
+}
+
+/** Read downloaded pages in reader order and optionally write them to the import archive. */
+internal suspend fun readLocalChapter(file: UniFile, archive: ZipOutputStream? = null): LocalChapterSnapshot {
+    val pages = mutableListOf<Pair<String, ImportedPage>>()
+    var comicInfo: String? = null
+    var total = 0L
+
+    suspend fun readEntry(name: String, input: InputStream) {
+        currentCoroutineContext().ensureActive()
+        if (name == ".nomedia") {
+            check(input.read() == -1) { "Unexpected content in .nomedia" }
+            return
         }
-        check(files.isNotEmpty() && files.all { it.isFile && ImageUtil.isImage(it.name) { it.openInputStream() } })
-        files.sortedBy { it.name }.map { it.openInputStream().use { stream -> hashStream(stream) } }
+        val isComicInfo = name == COMIC_INFO_FILE
+        check(if (isComicInfo) comicInfo == null else pages.size < 2000)
+        val entry = if (isComicInfo) COMIC_INFO_FILE else "page-${pages.size}"
+        archive?.putNextEntry(ZipEntry(entry))
+        val (hash, size) = digestStream(input, archive, if (isComicInfo) 4L * 1024 * 1024 else MAX_LOCAL_PAGE)
+        archive?.closeEntry()
+        if (isComicInfo) {
+            comicInfo = hash
+        } else {
+            total += size
+            check(total <= 2L * 1024 * 1024 * 1024) { "Chapter exceeds size limit" }
+            pages += name to ImportedPage(entry, hash)
+        }
+    }
+
+    if (file.isDirectory) {
+        for (entry in checkNotNull(file.listFiles()).sortedBy { it.name }) {
+            val name = checkNotNull(entry.name)
+            check(entry.isFile)
+            check(name == COMIC_INFO_FILE || name == ".nomedia" || ImageUtil.isImage(name) { entry.openInputStream() })
+            entry.openInputStream().use { readEntry(name, it) }
+        }
     } else {
         check(file.isFile && file.name?.endsWith(".cbz", ignoreCase = true) == true)
-        val entries = mutableListOf<Pair<String, String>>()
         file.openInputStream().use { input ->
             ZipInputStream(input).use { zip ->
                 while (true) {
                     val entry = zip.nextEntry ?: break
-                    if (!entry.isDirectory && entry.name != COMIC_INFO_FILE && entry.name != ".nomedia") {
+                    if (!entry.isDirectory) {
+                        val name = entry.name
                         check(
-                            entry.name.substringAfterLast('.').lowercase() in
-                                setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "jxl"),
+                            name == COMIC_INFO_FILE || name == ".nomedia" ||
+                                name.substringAfterLast('.').lowercase() in IMAGE_EXTENSIONS,
                         )
-                        entries += entry.name to hashStream(zip)
+                        readEntry(name, zip)
                     }
                     zip.closeEntry()
                 }
             }
         }
-        check(entries.map { it.first }.distinct().size == entries.size)
-        entries.sortedWith { a, b -> a.first.compareToCaseInsensitiveNaturalOrder(b.first) }.map { it.second }
+        pages.sortWith { a, b -> a.first.compareToCaseInsensitiveNaturalOrder(b.first) }
     }
-    check(pages.isNotEmpty() && pages.size <= 2000)
-    return pages
+    check(pages.isNotEmpty() && pages.map { it.first }.distinct().size == pages.size)
+    return LocalChapterSnapshot(pages.map { it.second }, comicInfo)
 }
 
-internal suspend fun hashStream(input: InputStream): String {
+internal suspend fun hashStream(input: InputStream): String = digestStream(input, null, MAX_LOCAL_PAGE).first
+
+private suspend fun digestStream(input: InputStream, output: OutputStream?, limit: Long): Pair<String, Long> {
     val digest = MessageDigest.getInstance("SHA-256")
     val buffer = ByteArray(64 * 1024)
     var total = 0L
@@ -198,9 +269,13 @@ internal suspend fun hashStream(input: InputStream): String {
         val count = input.read(buffer)
         if (count < 0) break
         total += count
-        check(total <= 64L * 1024 * 1024) { "Page is too large" }
+        check(total <= limit) { "File is too large" }
         digest.update(buffer, 0, count)
+        output?.write(buffer, 0, count)
     }
-    check(total > 0) { "Empty page" }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    check(total > 0) { "Empty file" }
+    return digest.digest().joinToString("") { "%02x".format(it) } to total
 }
+
+private const val MAX_LOCAL_PAGE = 64L * 1024 * 1024
+private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp", "gif", "avif", "jxl")

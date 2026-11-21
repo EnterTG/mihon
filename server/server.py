@@ -13,6 +13,7 @@ import sqlite3
 import ssl
 import tempfile
 import threading
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urljoin, urlsplit
 from contextlib import closing
@@ -20,12 +21,21 @@ from contextlib import closing
 MAX_PAGE = 64 * 1024 * 1024
 MAX_CHAPTER = 2 * 1024 * 1024 * 1024
 MAX_MANIFEST = 4 * 1024 * 1024
+MAX_IMPORT = MAX_CHAPTER + MAX_MANIFEST
 KEY = re.compile(r"[a-f0-9]{64}")
 BLOCKED_HEADERS = {"host", "connection", "content-length", "transfer-encoding", "proxy-authorization", "accept-encoding"}
 
 
 def chapter_key(metadata):
     return hashlib.sha256("\n".join(metadata[k] for k in ("sourceId", "mangaUrl", "chapterUrl")).encode()).hexdigest()
+
+
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def public_address(host, port):
@@ -159,6 +169,117 @@ class Library:
                 if pending.exists():
                     shutil.rmtree(pending)
 
+    def import_chapter(self, key, stream, size):
+        """Publish the verified device copy without changing an existing, different edition."""
+        if not KEY.fullmatch(key):
+            raise ValueError("Invalid chapter key")
+        with tempfile.TemporaryDirectory(prefix=".pending-", dir=self.root) as work:
+            work = Path(work)
+            archive_path = work / "upload.zip"
+            with archive_path.open("wb") as output:
+                while size:
+                    chunk = stream.read(min(size, 64 * 1024))
+                    if not chunk:
+                        raise ValueError("Incomplete upload")
+                    output.write(chunk)
+                    size -= len(chunk)
+            pending = work / "chapter"
+            pending.mkdir()
+            with zipfile.ZipFile(archive_path) as archive:
+                manifest_info = archive.getinfo("manifest.json")
+                if not 0 < manifest_info.file_size <= MAX_MANIFEST:
+                    raise ValueError("Invalid manifest size")
+                manifest = json.loads(archive.read(manifest_info))
+                metadata = manifest["metadata"]
+                fields = ("sourceId", "mangaUrl", "mangaTitle", "chapterUrl", "chapterName")
+                if any(not isinstance(metadata[k], str) or not 0 < len(metadata[k]) <= 8192 for k in fields):
+                    raise ValueError("Invalid metadata")
+                if chapter_key(metadata) != key:
+                    raise ValueError("Chapter key does not match metadata")
+                pages = manifest["pages"]
+                if not isinstance(pages, list) or not 1 <= len(pages) <= 2000:
+                    raise ValueError("Invalid page count")
+                names = [page["entry"] for page in pages]
+                with_metadata = "ComicInfo.xml" in archive.namelist()
+                expected_names = ["manifest.json", *names, *(["ComicInfo.xml"] if with_metadata else [])]
+                if len(set(expected_names)) != len(expected_names) or sorted(archive.namelist()) != sorted(expected_names):
+                    raise ValueError("Invalid archive entries")
+                hashes = []
+                total = 0
+                for index, page in enumerate(pages):
+                    if not re.fullmatch(r"page-[0-9]{1,4}", page["entry"]) or not KEY.fullmatch(page["sha256"]):
+                        raise ValueError("Invalid page")
+                    info = archive.getinfo(page["entry"])
+                    total += info.file_size
+                    if not 0 < info.file_size <= MAX_PAGE or total > MAX_CHAPTER:
+                        raise ValueError("Import exceeds size limit")
+                    path = pending / str(index)
+                    with archive.open(info) as source, path.open("wb") as output:
+                        shutil.copyfileobj(source, output, 64 * 1024)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    with path.open("rb") as stored:
+                        actual = hashlib.file_digest(stored, "sha256").hexdigest()
+                    if actual != page["sha256"]:
+                        raise ValueError("Imported page differs")
+                    hashes.append(actual)
+
+                comic_info_hash = manifest.get("comicInfoSha256")
+                if with_metadata != (comic_info_hash is not None):
+                    raise ValueError("Invalid ComicInfo metadata")
+                if with_metadata:
+                    info = archive.getinfo("ComicInfo.xml")
+                    if not 0 < info.file_size <= MAX_MANIFEST:
+                        raise ValueError("Invalid ComicInfo size")
+                    data = archive.read(info)
+                    if hashlib.sha256(data).hexdigest() != comic_info_hash:
+                        raise ValueError("Imported ComicInfo differs")
+                    with (pending / "ComicInfo.xml").open("wb") as output:
+                        output.write(data)
+                        output.flush()
+                        os.fsync(output.fileno())
+
+            metadata = {k: metadata[k] for k in fields}
+            with self.lock:
+                canonical = self.root / key
+                if canonical.exists() and self.import_matches(key, hashes, None):
+                    sidecar = canonical / "ComicInfo.xml"
+                    if comic_info_hash is not None and not sidecar.exists():
+                        (pending / "ComicInfo.xml").rename(sidecar)
+                        sync_directory(canonical)
+                if canonical.exists() and not self.import_matches(key, hashes, comic_info_hash):
+                    edition = hashlib.sha256("".join(hashes + [comic_info_hash or ""]).encode()).hexdigest()
+                    metadata["mangaUrl"] += "#yomira-local-import:" + edition
+                stored_key = chapter_key(metadata)
+                target = self.root / stored_key
+                if not target.exists():
+                    metadata.update(key=stored_key, pageCount=len(hashes))
+                    with (pending / "metadata.json").open("w", encoding="utf-8") as output:
+                        json.dump(metadata, output, ensure_ascii=False)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    sync_directory(pending)
+                    pending.rename(target)
+                elif not self.import_matches(stored_key, hashes, comic_info_hash):
+                    raise ValueError("Existing import differs")
+                sync_directory(self.root)
+                return {"chapter": self.metadata(stored_key), "pageHashes": hashes, "comicInfoSha256": comic_info_hash}
+
+    def import_matches(self, key, hashes, comic_info_hash):
+        if self.metadata(key)["pageCount"] != len(hashes):
+            return False
+        try:
+            for index, expected in enumerate(hashes):
+                with (self.root / key / str(index)).open("rb") as page:
+                    if hashlib.file_digest(page, "sha256").hexdigest() != expected:
+                        return False
+            if comic_info_hash is not None:
+                with (self.root / key / "ComicInfo.xml").open("rb") as info:
+                    return hashlib.file_digest(info, "sha256").hexdigest() == comic_info_hash
+            return True
+        except FileNotFoundError:
+            return False
+
     def delete(self, key):
         if not KEY.fullmatch(key):
             raise ValueError("Invalid chapter key")
@@ -253,6 +374,8 @@ def make_server(address, library, token):
                     self.reply(200, library.catalog())
                 elif self.path == "/v1/history":
                     self.reply(200, library.history())
+                elif self.path == "/v1/imports":
+                    self.reply(200, {"version": 1})
                 elif len(parts) == 4 and parts[1:3] == ["v1", "chapters"]:
                     self.reply(200, library.metadata(parts[3]))
                 elif len(parts) == 6 and parts[1:3] == ["v1", "chapters"] and parts[4] == "pages":
@@ -302,6 +425,26 @@ def make_server(address, library, token):
                 self.reply(502, {"error": "Server could not download the chapter; retry later"})
             except sqlite3.Error:
                 self.reply(503, {"error": "History storage unavailable; retry later"})
+
+        def do_PUT(self):
+            if not self.authorized():
+                return
+            # Always close this connection so early validation errors cannot leave unread body bytes.
+            self.close_connection = True
+            parts = self.path.split("/")
+            if len(parts) != 5 or parts[1:3] != ["v1", "chapters"] or parts[4] != "import":
+                self.reply(404, {"error": "Not found"})
+                return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if self.headers.get("Transfer-Encoding") or not 0 < size <= MAX_IMPORT:
+                    self.reply(413, {"error": "Import too large or missing Content-Length"})
+                    return
+                self.reply(200, library.import_chapter(parts[3], self.rfile, size))
+            except (ValueError, KeyError, TypeError, zipfile.BadZipFile):
+                self.reply(400, {"error": "Invalid chapter import"})
+            except (OSError, RuntimeError, NotImplementedError):
+                self.reply(503, {"error": "Server could not store the chapter"})
 
         def do_DELETE(self):
             if not self.authorized():

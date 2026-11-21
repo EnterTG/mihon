@@ -2,7 +2,7 @@
 
 Yomira zapisuje pobierane obrazy bezpośrednio na Twoim serwerze. Android przekazuje usłudze listę adresów obrazów i nagłówki źródła; **obrazy pobiera serwer**, a aplikacja odbiera je dopiero do czytania. Wybranie „Pobierz” w aplikacji archiwizuje cały wybrany rozdział na NAS, bez pobierania jego obrazów na telefon.
 
-Na telefonie pozostaje baza biblioteki (tytuły, ulubione, historia i postęp czytania), okładki, rozszerzenia, indeks zawartości serwera oraz tymczasowe obrazy. Przy włączonej bibliotece sieciowej nowe sesje czytania są dodatkowo zapisywane na serwerze — szczegóły poniżej. Nie jest to synchronizacja całej bazy aplikacji między urządzeniami. Dotychczasowe lokalne pliki nie są przenoszone ani kasowane.
+Na telefonie pozostaje baza biblioteki (tytuły, ulubione, historia i postęp czytania), okładki, rozszerzenia, indeks zawartości serwera oraz tymczasowe obrazy. Przy włączonej bibliotece sieciowej nowe sesje czytania są dodatkowo zapisywane na serwerze — szczegóły poniżej. Nie jest to synchronizacja całej bazy aplikacji między urządzeniami. Dotychczasowymi pobraniami zarządza opcja przenoszenia nadmiarowych rozdziałów.
 
 ## Co przygotować na TrueNAS
 
@@ -103,6 +103,12 @@ Nazwy `MIHON_DATA`, `MIHON_TOKEN`, `mihon-library` oraz ścieżki datasetów poz
 5. Dodaj tytuł do biblioteki zwykłym sposobem i wybierz rozdziały do pobrania. Status pobrania i liczniki w tym trybie dotyczą archiwum na NAS.
 
 Po zmianach z innego urządzenia odśwież katalog przyciskiem w ustawieniach. Serwer identyfikuje treść przez identyfikator źródła, adres mangi i adres rozdziału; nazwy plików nie zależą od tytułów ani lokalnych identyfikatorów bazy Androida. Kopiowanie archiwum nie dodaje automatycznie mang do ulubionych na drugim urządzeniu.
+
+## Porządkowanie dotychczasowych pobrań
+
+Zaktualizuj aplikację i usługę NAS. Przy instalacji przez Compose pobierz aktualny kod i wykonaj `docker compose up -d --build` z katalogu `server`, zachowując istniejący dataset i plik `.env`. W Yomirze wybierz **Przenieś nadmiarowe rozdziały na serwer** w ustawieniach pobierania albo wskaż folder pobrań Mihona.
+
+Aplikacja zachowuje do czterech lokalnych pobrań na tytuł. Są to rozdziały dostępne w oknie wokół ostatnio czytanego rozdziału lub pierwszego nieprzeczytanego, jeśli nie ma historii. Inne dopasowane pliki przesyła bezpośrednio z urządzenia. Usunięcie następuje po zapisaniu wszystkich stron i potwierdzeniu ich sum SHA-256. Jeżeli na NAS znajduje się inna wersja rozdziału, import zachowuje obie pod osobnymi kluczami. Pliki bez jednoznacznego dopasowania lub z błędem pozostają na urządzeniu.
 
 ## Historia czytania na serwerze
 
