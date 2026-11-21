@@ -1102,11 +1102,12 @@
     <string name="donationCampaign.dismiss">Dismiss</string>
 
     <!-- Network library -->
-    <string name="remote_migration_title">Move local chapters to server</string>
+    <string name="remote_migration_title">Move excess downloads to the server</string>
     <string name="remote_migration_choose_folder">Choose Mihon download folder</string>
-    <string name="remote_migration_description">Scans the configured download folder. You can also choose the Mihon folder directly. Local chapters are deleted only after their pages match the server copy.</string>
+    <string name="remote_migration_description">Keeps up to four chapters per title around the last chapter read. Other matched downloads are uploaded and removed after verification.</string>
     <string name="remote_migration_waiting">Waiting for a connection…</string>
-    <string name="remote_migration_result">Found: %1$d, moved: %2$d, unmatched: %3$d, skipped: %4$d</string>
+    <string name="remote_migration_result">Found: %1$d, moved: %2$d, unmatched: %3$d, skipped: %4$d, kept locally: %5$d</string>
+    <string name="remote_migration_update_server">Update the Yomira service on your NAS to upload local chapters.</string>
     <string name="remote_migration_error">Interrupted. Check folder access and server settings.</string>
     <string name="remote_library_title">Network library (TrueNAS)</string>
     <string name="remote_library_url">Server URL</string>

@@ -92,6 +92,9 @@ class ChapterLoader(
         val originChapter = selected?.chapter ?: chapter.chapter
         val manualOverride = sourceLinks.preferredSourceId(chapter.chapter.id) != null
         if (downloadManager.remoteLibrary.enabled && source !is LocalSource) {
+            if (!manualOverride && selectedSource.id == source.id && isDownloaded(chapter)) {
+                return DownloadPageLoader(chapter, manga, source, downloadManager, downloadProvider)
+            }
             return RemotePageLoader(
                 chapter,
                 manga,
@@ -105,16 +108,8 @@ class ChapterLoader(
             // Do not serve the primary source's already downloaded CBZ when a mirror was selected.
             return HttpPageLoader(chapter, selected.source, chapterCache, appScope, canLoadAhead, originChapter)
         }
-        val dbChapter = chapter.chapter
-        val isDownloaded = downloadManager.isChapterDownloadedOnDisk(
-            dbChapter.name,
-            dbChapter.scanlator,
-            dbChapter.url,
-            manga.title,
-            source,
-        )
         return when {
-            isDownloaded -> DownloadPageLoader(
+            isDownloaded(chapter) -> DownloadPageLoader(
                 chapter,
                 manga,
                 source,
@@ -132,5 +127,16 @@ class ChapterLoader(
             source is StubSource -> error(context.stringResource(MR.strings.source_not_installed, source.toString()))
             else -> error(context.stringResource(MR.strings.loader_not_implemented_error))
         }
+    }
+
+    private suspend fun isDownloaded(chapter: ReaderChapter): Boolean {
+        val dbChapter = chapter.chapter
+        return downloadManager.isChapterDownloadedOnDisk(
+            dbChapter.name,
+            dbChapter.scanlator,
+            dbChapter.url,
+            manga.title,
+            source,
+        )
     }
 }

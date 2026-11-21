@@ -1,4 +1,6 @@
+import hashlib
 import http.client
+import io
 import json
 from pathlib import Path
 import socket
@@ -6,6 +8,7 @@ import tempfile
 import threading
 import unittest
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 import sys
@@ -95,6 +98,68 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(400, self.request("DELETE", "/v1/chapters/..")[0])
         self.assertEqual(400, self.request("GET", "/v1/chapters/..")[0])
         self.assertEqual([], self.downloads)
+
+    def upload(self, pages, hashes=None, token=TOKEN, metadata=b"<ComicInfo/>"):
+        names = [f"page-{index}" for index in range(len(pages))]
+        hashes = hashes or [hashlib.sha256(page).hexdigest() for page in pages]
+        manifest = {"metadata": META, "pages": [{"entry": name, "sha256": digest}
+                                                   for name, digest in zip(names, hashes, strict=True)]}
+        body = io.BytesIO()
+        with zipfile.ZipFile(body, mode="w") as archive:
+            # Transmitted ZIP entry order need not equal reader order.
+            for name, page in reversed(list(zip(names, pages, strict=True))):
+                archive.writestr(name, page)
+            if metadata is not None:
+                archive.writestr("ComicInfo.xml", metadata)
+                manifest["comicInfoSha256"] = hashlib.sha256(metadata).hexdigest()
+            archive.writestr("manifest.json", json.dumps(manifest))
+        conn = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+        try:
+            conn.request("PUT", f"/v1/chapters/{KEY}/import", body.getvalue(),
+                         {"Authorization": "Bearer " + token, "Content-Type": "application/zip"})
+            response = conn.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            conn.close()
+
+    def test_import_delivers_exact_pages_without_accessing_origin(self):
+        pages = [b"first", b"last"]
+        self.assertEqual(200, self.request("GET", "/v1/imports")[0])
+        status, receipt = self.upload(pages)
+        self.assertEqual(200, status)
+        self.assertEqual(KEY, receipt["chapter"]["key"])
+        self.assertEqual([hashlib.sha256(page).hexdigest() for page in pages], receipt["pageHashes"])
+        for index, page in enumerate(pages):
+            self.assertEqual((200, page), self.request("GET", f"/v1/chapters/{KEY}/pages/{index}"))
+        self.assertEqual(b"<ComicInfo/>", (self.library.root / KEY / "ComicInfo.xml").read_bytes())
+        self.assertEqual((200, receipt), self.upload(pages))
+        self.assertEqual([], self.downloads)
+
+    def test_preexisting_edition_is_preserved_and_import_can_be_retried(self):
+        self.assertEqual(200, self.request("POST", f"/v1/chapters/{KEY}", PAYLOAD)[0])
+        status, receipt = self.upload([b"original device version"])
+        self.assertEqual(200, status)
+        variant = receipt["chapter"]["key"]
+        self.assertNotEqual(KEY, variant)
+        self.assertEqual((200, b"image bytes"), self.request("GET", f"/v1/chapters/{KEY}/pages/0"))
+        self.assertEqual((200, b"original device version"),
+                         self.request("GET", f"/v1/chapters/{variant}/pages/0"))
+        self.assertEqual((200, receipt), self.upload([b"original device version"]))
+        self.assertEqual(2, len(self.library.catalog()))
+
+    def test_identical_server_pages_receive_missing_sidecar(self):
+        self.assertEqual(200, self.request("POST", f"/v1/chapters/{KEY}", PAYLOAD)[0])
+        status, receipt = self.upload([b"image bytes"])
+        self.assertEqual(200, status)
+        self.assertEqual(KEY, receipt["chapter"]["key"])
+        self.assertEqual(b"<ComicInfo/>", (self.library.root / KEY / "ComicInfo.xml").read_bytes())
+        self.assertEqual(1, len(self.library.catalog()))
+
+    def test_import_never_publishes_unauthorized_or_bad_content(self):
+        self.assertEqual(401, self.upload([b"page"], token="wrong")[0])
+        self.assertEqual(400, self.upload([b"page"], hashes=["0" * 64])[0])
+        self.assertEqual([], self.library.catalog())
+        self.assertEqual([], list(self.library.root.iterdir()))
 
     def history_event(self, **changes):
         return {**META, "eventId": str(uuid.uuid4()), "lastRead": 1000,

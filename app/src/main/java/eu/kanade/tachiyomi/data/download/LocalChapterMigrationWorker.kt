@@ -17,6 +17,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import dev.zacsweers.metro.Inject
 import eu.kanade.tachiyomi.data.download.remote.LocalChapterMigration
+import eu.kanade.tachiyomi.data.download.remote.LocalImportUnsupported
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.util.system.notificationBuilder
 import eu.kanade.tachiyomi.util.system.setForegroundSafely
@@ -52,6 +53,8 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
                 setProgress(it.toData())
             }
             Result.success(counts.toData())
+        } catch (_: LocalImportUnsupported) {
+            Result.failure(workDataOf(NEEDS_SERVER_UPDATE to true))
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Result.failure()
@@ -63,6 +66,7 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
         MIGRATED to migrated,
         SKIPPED to skipped,
         UNMATCHED to unmatched,
+        KEPT to kept,
     )
 
     companion object {
@@ -73,6 +77,8 @@ class LocalChapterMigrationWorker(context: Context, params: WorkerParameters) : 
         const val UNMATCHED = "unmatched"
         const val MIGRATED = "migrated"
         const val SKIPPED = "skipped"
+        const val KEPT = "kept"
+        const val NEEDS_SERVER_UPDATE = "needs_server_update"
 
         fun start(context: Context, folder: String? = null) {
             val request = OneTimeWorkRequestBuilder<LocalChapterMigrationWorker>()

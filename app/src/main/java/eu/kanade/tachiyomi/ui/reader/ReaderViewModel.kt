@@ -451,7 +451,17 @@ class ReaderViewModel(
                     if (buffered == chapter && isManualSelection) continue
                     if (buffered != chapter && !canLoadAhead()) continue
                     try {
-                        val stored = remote.ensure(manga, buffered.chapter, source)
+                        val localSource = state.value.source
+                        val localChapter = buffered.chapter
+                        val isOnDisk = localSource != null && downloadManager.isChapterDownloadedOnDisk(
+                            localChapter.name,
+                            localChapter.scanlator,
+                            localChapter.url,
+                            manga.title,
+                            localSource,
+                        )
+                        if (isOnDisk) continue
+                        val stored = remote.ensure(manga, localChapter, source)
                         repeat(stored.pageCount) { remote.pageFile(stored.key, it) }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e

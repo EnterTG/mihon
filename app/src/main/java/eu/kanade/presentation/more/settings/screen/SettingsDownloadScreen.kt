@@ -173,13 +173,18 @@ object SettingsDownloadScreen : SearchableSettings {
                             migrationData?.getInt(LocalChapterMigrationWorker.MIGRATED, 0) ?: 0,
                             migrationData?.getInt(LocalChapterMigrationWorker.UNMATCHED, 0) ?: 0,
                             migrationData?.getInt(LocalChapterMigrationWorker.SKIPPED, 0) ?: 0,
+                            migrationData?.getInt(LocalChapterMigrationWorker.KEPT, 0) ?: 0,
                         )
                         WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> stringResource(
                             MR.strings.remote_migration_waiting,
                         )
-                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> stringResource(
-                            MR.strings.remote_migration_error,
-                        )
+                        WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> if (
+                            migrationData?.getBoolean(LocalChapterMigrationWorker.NEEDS_SERVER_UPDATE, false) == true
+                        ) {
+                            stringResource(MR.strings.remote_migration_update_server)
+                        } else {
+                            stringResource(MR.strings.remote_migration_error)
+                        }
                         else -> stringResource(MR.strings.remote_migration_description)
                     },
                     visible = remoteEnabled,

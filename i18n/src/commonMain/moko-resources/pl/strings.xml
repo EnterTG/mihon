@@ -819,11 +819,12 @@
     <string name="downloading_with_progress">Pobieranie... (%d%%)</string>
 
     <!-- Network library -->
-    <string name="remote_migration_title">Przenieś lokalne rozdziały na serwer</string>
+    <string name="remote_migration_title">Przenieś nadmiarowe rozdziały na serwer</string>
     <string name="remote_migration_choose_folder">Wybierz folder pobrań Mihona</string>
-    <string name="remote_migration_description">Skanuje skonfigurowany folder pobierania. Możesz też wskazać folder Mihona. Lokalne rozdziały zostaną usunięte dopiero po potwierdzeniu zgodności stron z kopią na serwerze.</string>
+    <string name="remote_migration_description">Zostawia do czterech rozdziałów każdej manhwy wokół ostatnio czytanego. Nadmiarowe pliki przesyła na serwer i usuwa po weryfikacji.</string>
     <string name="remote_migration_waiting">Oczekiwanie na połączenie…</string>
-    <string name="remote_migration_result">Znaleziono: %1$d, przeniesiono: %2$d, nie rozpoznano: %3$d, pominięto: %4$d</string>
+    <string name="remote_migration_result">Znaleziono: %1$d, przeniesiono: %2$d, nie rozpoznano: %3$d, pominięto: %4$d, zachowano lokalnie: %5$d</string>
+    <string name="remote_migration_update_server">Zaktualizuj usługę Yomiry na NAS, aby przesłać lokalne rozdziały.</string>
     <string name="remote_migration_error">Przerwano. Sprawdź dostęp do folderu i ustawienia serwera.</string>
     <string name="remote_library_title">Biblioteka sieciowa (TrueNAS)</string>
     <string name="remote_library_url">Adres serwera</string>
